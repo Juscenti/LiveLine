@@ -4,7 +4,10 @@
 import axios from 'axios';
 import { supabase } from './supabase';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+if (!BASE_URL) {
+  throw new Error('Missing env: EXPO_PUBLIC_API_URL');
+}
 
 export const api = axios.create({
   baseURL: BASE_URL,

@@ -25,7 +25,10 @@ const PORT = process.env.PORT ?? 4000;
 // ── Security middleware ──────────────────────────────────────
 app.use(helmet());
 app.use(cors({
-  origin: ['http://localhost:8081', 'exp://localhost:8081'],
+  // Native mobile apps don't use browser CORS rules, but axios/xhr/web do.
+  // Using `origin: true` reflects the incoming `Origin` header and prevents
+  // Render/Expo environments from being blocked.
+  origin: true,
   credentials: true,
 }));
 
