@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
+import { wakeBackend } from '@/services/api';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -18,7 +19,11 @@ export default function RootLayout() {
   const initialize = useAuthStore((s) => s.initialize);
 
   useEffect(() => {
-    initialize();
+    // Render can cold-start; wake it up first so auth/profile/feed calls don't timeout.
+    (async () => {
+      await wakeBackend();
+      await initialize();
+    })();
   }, []);
 
   return (
@@ -34,6 +39,7 @@ export default function RootLayout() {
           <Stack.Screen name="profile/edit" />
           <Stack.Screen name="friends" />
           <Stack.Screen name="settings" />
+          <Stack.Screen name="interests" />
           <Stack.Screen name="music/connect" options={{ presentation: 'modal' }} />
         </Stack>
       </GestureHandlerRootView>

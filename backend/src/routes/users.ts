@@ -50,10 +50,14 @@ router.patch('/me', requireAuth, async (req: AuthRequest, res: Response) => {
     .from('users')
     .update(parsed.data)
     .eq('id', req.userId)
-    .select()
-    .single();
+    // `single()` throws PGRST116 ("Cannot coerce the result to a single JSON object")
+    // if the underlying PostgREST returns an empty array or unexpected shape.
+    // `maybeSingle()` is safer for update responses.
+    .select('id, username, display_name, bio, profile_picture_url, banner_url, updated_at')
+    .maybeSingle();
 
   if (error) return res.status(500).json({ error: error.message, data: null });
+  if (!data) return res.status(404).json({ error: 'User not found', data: null });
   return res.json({ data, error: null });
 });
 

@@ -83,6 +83,11 @@ export default function ProfileScreen() {
         <Text style={styles.connectMusicText}>🎵  Connect music</Text>
       </TouchableOpacity>
 
+      {/* Interests */}
+      <TouchableOpacity style={styles.connectMusic} onPress={() => router.push('/interests')}>
+        <Text style={styles.connectMusicText}>✨  Interests</Text>
+      </TouchableOpacity>
+
       {/* Posts grid */}
       <View style={styles.grid}>
         {posts.map((post) => (

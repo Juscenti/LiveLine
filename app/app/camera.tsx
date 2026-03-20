@@ -45,7 +45,7 @@ export default function CameraScreen() {
 
   const pickFromGallery = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: ImagePicker.MediaType.All,
       quality: 0.8,
       videoMaxDuration: POST.MAX_DURATION_SEC,
     });

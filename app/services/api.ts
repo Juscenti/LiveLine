@@ -11,16 +11,45 @@ if (!BASE_URL) {
 
 export const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 15000,
+  // Render can go to sleep; cold starts may exceed the old 15s timeout.
+  timeout: 60000,
   headers: { 'Content-Type': 'application/json' },
 });
 
+const getBackendHealthUrl = () => {
+  // BASE_URL is like ".../api". Backend health route is at "/health".
+  const base = BASE_URL.replace(/\/api\/?$/, '');
+  return `${base}/health`;
+};
+
+// Wake the backend (Render cold start) before we make authenticated calls.
+export const wakeBackend = async () => {
+  try {
+    await axios.get(getBackendHealthUrl(), { timeout: 70000 });
+  } catch {
+    // Ignore; we'll still try the normal API flow afterwards.
+  }
+};
+
 // Attach Supabase JWT to every request
 api.interceptors.request.use(async (config) => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
+  // Avoid auth-session lookups for unauthenticated endpoints.
+  const url = config.url ?? '';
+  const isAuthFree =
+    url.includes('/auth/register') ||
+    url.includes('/auth/login');
+
+  if (isAuthFree) return config;
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
+    }
+  } catch {
+    // If getting a session fails (e.g., anon key issues), just send without Authorization.
   }
+
   return config;
 });
 

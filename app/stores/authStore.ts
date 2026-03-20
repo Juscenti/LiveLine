@@ -27,12 +27,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isInitialized: false,
 
   initialize: async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      const { data } = await authApi.me().catch(() => ({ data: null }));
-      set({ session, user: data?.data ?? null });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data } = await authApi.me().catch(() => ({ data: null }));
+        set({ session, user: data?.data ?? null });
+      } else {
+        set({ session: null, user: null });
+      }
+      set({ isInitialized: true });
+    } catch {
+      // If auth initialization fails (e.g., transient network), still allow the app to render.
+      set({ session: null, user: null, isInitialized: true });
     }
-    set({ isInitialized: true });
 
     // Listen to Supabase auth changes
     supabase.auth.onAuthStateChange(async (event, session) => {
@@ -65,8 +72,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         refresh_token: session.refresh_token,
       });
 
-      const me = await authApi.me().catch(() => ({ data: { data: null } }));
-      set({ user: me?.data?.data ?? null, session });
+      // Use the user returned by the backend to avoid an extra `/auth/me` round-trip
+      // (which depends on Authorization + anon-key behavior).
+      const user = resp?.data?.data?.user ?? resp?.data?.user ?? null;
+      set({ user: user ?? null, session });
     } finally {
       set({ isLoading: false });
     }
@@ -90,8 +99,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         refresh_token: session.refresh_token,
       });
 
-      const me = await authApi.me().catch(() => ({ data: { data: null } }));
-      set({ user: me?.data?.data ?? null, session });
+      const user = resp?.data?.data?.user ?? resp?.data?.user ?? null;
+      set({ user: user ?? null, session });
     } finally {
       set({ isLoading: false });
     }
