@@ -23,7 +23,11 @@ export const supabaseAnon = createClient(
 // Create a user-scoped client that includes the caller's JWT so RLS policies
 // depending on `auth.uid()` work as expected.
 export const createSupabaseUserClient = (accessToken: string) => {
-  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
+  // Use the service role key so the backend is never dependent on
+  // `SUPABASE_ANON_KEY` being present/valid in the runtime environment.
+  // We still pass the user's JWT in `Authorization` so any logic that
+  // depends on `auth.uid()` has the correct caller identity.
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
     auth: { autoRefreshToken: false, persistSession: false },
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
