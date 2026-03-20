@@ -20,7 +20,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 
 const app = express();
-const PORT = process.env.PORT ?? 4000;
+const PORT = Number(process.env.PORT ?? 4000);
 
 // ── Security middleware ──────────────────────────────────────
 app.use(helmet());

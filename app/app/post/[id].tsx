@@ -8,6 +8,7 @@ import {
   Image, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { Video } from 'expo-av';
 import { postsApi } from '@/services/api';
 import { useFeedStore } from '@/stores/feedStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -78,6 +79,8 @@ export default function PostDetailScreen() {
     post.user_has_liked ? unlikePost(post.id) : likePost(post.id);
   };
 
+  const imageUri = post.thumbnail_url ?? post.media_url;
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -93,7 +96,32 @@ export default function PostDetailScreen() {
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Media placeholder */}
         <View style={styles.media}>
-          <Text style={styles.mediaPlaceholder}>{post.media_type === 'video' ? '▶' : '🖼'}</Text>
+          {post.media_type === 'image' ? (
+            imageUri ? (
+              <Image
+                source={{ uri: imageUri }}
+                style={styles.mediaImage}
+                resizeMode="contain"
+              />
+            ) : (
+              <View style={styles.mediaPlaceholder}>
+                <Text style={styles.mediaPlaceholderText}>🖼</Text>
+              </View>
+            )
+          ) : (
+            post.media_url ? (
+              <Video
+                source={{ uri: post.media_url }}
+                style={styles.mediaImage}
+                shouldPlay={false}
+                useNativeControls={true}
+              />
+            ) : (
+              <View style={styles.mediaPlaceholder}>
+                <Text style={styles.mediaPlaceholderText}>▶</Text>
+              </View>
+            )
+          )}
         </View>
 
         {/* Author row */}
@@ -182,7 +210,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgCard,
     justifyContent: 'center', alignItems: 'center',
   },
-  mediaPlaceholder: { fontSize: 48 },
+  mediaImage: { width: '100%', height: '100%' },
+  mediaPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mediaPlaceholderText: { fontSize: 48, color: COLORS.textTertiary },
   authorRow: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
     padding: SPACING.base,

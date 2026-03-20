@@ -44,30 +44,6 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
 }
 
 // ============================================================
-// middleware/errorHandler.ts
-// ============================================================
-import { Request, Response, NextFunction } from 'express';
-
-export function errorHandler(err: any, _req: Request, res: Response, _next: NextFunction) {
-  console.error('[Error]', err);
-  const status  = err.status ?? err.statusCode ?? 500;
-  const message = err.message ?? 'Internal server error';
-  res.status(status).json({ error: message, data: null });
-}
-
-// ============================================================
-// middleware/requestLogger.ts
-// ============================================================
-import { Request, Response, NextFunction } from 'express';
-
-export function requestLogger(req: Request, _res: Response, next: NextFunction) {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  }
-  next();
-}
-
-// ============================================================
 // middleware/upload.ts — Multer config for media uploads
 // ============================================================
 import multer from 'multer';

@@ -27,6 +27,13 @@ export default function CameraScreen() {
 
   useEffect(() => { requestPermission(); }, []);
 
+  const getImagePickerAllMediaTypes = () => {
+    const picker: any = ImagePicker;
+    // Different expo-image-picker versions expose either `MediaType` or
+    // `MediaTypeOptions`. Your current build doesn't have `MediaType`.
+    return picker?.MediaType?.All ?? picker?.MediaTypeOptions?.All ?? null;
+  };
+
   const takePicture = async () => {
     const photo = await cameraRef.current?.takePictureAsync({ quality: 0.8 });
     if (photo) setPreview({ uri: photo.uri, type: 'image' });
@@ -44,11 +51,13 @@ export default function CameraScreen() {
   };
 
   const pickFromGallery = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.All,
+    const All = getImagePickerAllMediaTypes();
+    const options: any = {
       quality: 0.8,
       videoMaxDuration: POST.MAX_DURATION_SEC,
-    });
+    };
+    if (All) options.mediaTypes = All;
+    const result = await ImagePicker.launchImageLibraryAsync(options);
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
       setPreview({ uri: asset.uri, type: asset.type === 'video' ? 'video' : 'image' });
@@ -70,7 +79,8 @@ export default function CameraScreen() {
 
       const { data } = await postsApi.create(form);
       prependPost(data.data);
-      router.back();
+      // Ensure we reliably return to the feed (router.back() can land on a blank modal state).
+      router.replace('/feed');
     } catch (e: any) {
       Alert.alert('Upload failed', e.message);
     } finally {
@@ -123,7 +133,10 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      <CameraView ref={cameraRef} style={styles.camera} facing={facing}>
+      <CameraView ref={cameraRef} style={styles.camera} facing={facing} />
+
+      {/* Overlay controls (CameraView should not receive children) */}
+      <View style={styles.overlay}>
         {/* Top bar */}
         <View style={styles.topBar}>
           <TouchableOpacity onPress={() => router.back()}>
@@ -156,7 +169,7 @@ export default function CameraScreen() {
 
           <View style={{ width: 52 }} />
         </View>
-      </CameraView>
+      </View>
     </View>
   );
 }
@@ -164,6 +177,7 @@ export default function CameraScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   camera: { flex: 1 },
+  overlay: { ...StyleSheet.absoluteFillObject },
   topBar: {
     flexDirection: 'row', justifyContent: 'space-between',
     paddingTop: 56, paddingHorizontal: SPACING.xl,

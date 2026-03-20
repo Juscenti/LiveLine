@@ -7,6 +7,58 @@ import { musicService } from '../services/musicService';
 
 const router = Router();
 
+router.get('/connect/spotify/auth-url', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const clientId = process.env.SPOTIFY_CLIENT_ID;
+    const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
+
+    if (!clientId || !redirectUri) {
+      return res.status(501).json({
+        error: 'Spotify OAuth is not configured on the backend (set SPOTIFY_CLIENT_ID + SPOTIFY_REDIRECT_URI).',
+        data: null,
+      });
+    }
+
+    // We don't store state server-side in this MVP; users can still paste the `code`
+    // from the redirect into the app to complete the connection.
+    const state = req.userId!;
+    // Needed for "currently playing" sync.
+    const scope = ['user-read-email', 'user-read-private', 'user-read-playback-state', 'user-top-read'].join(' ');
+
+    const params = new URLSearchParams();
+    params.set('response_type', 'code');
+    params.set('client_id', clientId);
+    params.set('redirect_uri', redirectUri);
+    params.set('scope', scope);
+    params.set('state', state);
+    // Request refresh token where supported.
+    params.set('access_type', 'offline');
+
+    const url = `https://accounts.spotify.com/authorize?${params.toString()}`;
+
+    return res.json({ data: { url }, error: null });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message ?? 'Unknown error', data: null });
+  }
+});
+
+router.get('/connect/apple/auth-url', requireAuth, async (req: AuthRequest, res: Response) => {
+  // Apple Music OAuth requires additional server-side signing (JWT) and setup.
+  // Keep a UX stub so the app can show a "link" step without breaking navigation.
+  const missing = !process.env.APPLE_MUSIC_TEAM_ID || !process.env.APPLE_MUSIC_KEY_ID || !process.env.APPLE_MUSIC_PRIVATE_KEY_PATH;
+  if (missing) {
+    return res.status(501).json({
+      error: 'Apple OAuth is not configured on the backend yet (missing Apple Music env vars).',
+      data: null,
+    });
+  }
+
+  return res.status(501).json({
+    error: 'Apple Music OAuth URL generation is not implemented in this repo yet.',
+    data: null,
+  });
+});
+
 router.post('/connect/spotify', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     await musicService.connectSpotify(req.userId!, req.body.code);

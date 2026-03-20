@@ -24,7 +24,6 @@ export default function FriendMapSheet({ friend, onClose }: Props) {
         duration_ms: null,
         is_currently_playing: true,
         updated_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
       }
     : null;
 

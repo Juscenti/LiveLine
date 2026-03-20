@@ -38,6 +38,9 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         cursor: data.cursor,
         hasMore: data.has_more,
       });
+    } catch {
+      // If backend is cold-starting or network fails, don't crash the UI.
+      set({ posts: [], cursor: null, hasMore: false });
     } finally {
       set({ isLoading: false });
     }
@@ -54,6 +57,9 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         cursor: data.cursor,
         hasMore: data.has_more,
       }));
+    } catch {
+      // Keep existing posts; just stop pagination on repeated failures.
+      set({ hasMore: false });
     } finally {
       set({ isLoading: false });
     }
@@ -64,6 +70,8 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     try {
       const { data } = await postsApi.getFeed();
       set({ posts: data.data, cursor: data.cursor, hasMore: data.has_more });
+    } catch {
+      // Leave existing posts in place if refresh fails.
     } finally {
       set({ isRefreshing: false });
     }
