@@ -7,6 +7,7 @@ import {
   Text, TouchableOpacity, Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useFeedStore } from '@/stores/feedStore';
 import { COLORS, SPACING, FONTS } from '@/constants';
 import PostCard from '@/components/feed/PostCard';
@@ -30,6 +31,9 @@ export default function FeedScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.wordmark}>liveline</Text>
+        <TouchableOpacity style={styles.postBtn} onPress={() => router.push('/camera')} activeOpacity={0.9}>
+          <Ionicons name="add" size={22} color={COLORS.textInverse} />
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -74,6 +78,14 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.sm,
   },
   wordmark: { fontSize: FONTS.sizes.xl, fontWeight: FONTS.weights.black, color: COLORS.accent, letterSpacing: -1 },
+  postBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.accent,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   list: { padding: SPACING.base, gap: SPACING.sm },
   row: { gap: SPACING.sm, marginBottom: SPACING.sm },
   empty: { flex: 1, alignItems: 'center', paddingTop: 80 },

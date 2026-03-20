@@ -2,14 +2,39 @@
 // app/(tabs)/_layout.tsx — Bottom tab navigator
 // ============================================================
 import { Tabs } from 'expo-router';
-import { View, Text, StyleSheet } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS } from '@/constants';
 import { useNotificationStore } from '@/stores/notificationStore';
 
+const IONICON_NAMES = {
+  feed: 'home',
+  friends: 'people',
+  map: 'map',
+  notifications: 'notifications',
+  profile: 'person',
+} as const;
+
 // Tab bar icon component
-function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
+function TabIcon({ icon, focused }: { icon: keyof typeof IONICON_NAMES; focused: boolean }) {
+  const scale = useRef(new Animated.Value(focused ? 1 : 0.92)).current;
+
+  useEffect(() => {
+    Animated.spring(scale, {
+      toValue: focused ? 1 : 0.92,
+      speed: 18,
+      bounciness: 8,
+      useNativeDriver: false,
+    }).start();
+  }, [focused, scale]);
+
+  const color = focused ? COLORS.accent : COLORS.textTertiary;
+
   return (
-    <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.4 }}>{emoji}</Text>
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Ionicons name={IONICON_NAMES[icon]} size={24} color={color} />
+    </Animated.View>
   );
 }
 
@@ -17,61 +42,57 @@ export default function TabsLayout() {
   const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: COLORS.accent,
-        tabBarInactiveTintColor: COLORS.textTertiary,
-        tabBarShowLabel: false,
-      }}
-    >
-      <Tabs.Screen
-        name="feed"
-        options={{
-          tabBarIcon: ({ focused }) => <TabIcon emoji="⚡" focused={focused} />,
+    <View style={{ flex: 1 }}>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: styles.tabBar,
+          tabBarActiveTintColor: COLORS.accent,
+          tabBarInactiveTintColor: COLORS.textTertiary,
+          tabBarShowLabel: false,
         }}
-      />
-      <Tabs.Screen
-        name="friends"
-        options={{
-          tabBarIcon: ({ focused }) => <TabIcon emoji="👥" focused={focused} />,
-        }}
-      />
-      {/* Center capture button — navigates to camera modal */}
-      <Tabs.Screen
-        name="capture"
-        options={{
-          href: '/camera',
-          tabBarIcon: () => (
-            <View style={styles.captureBtn}>
-              <Text style={{ fontSize: 24 }}>＋</Text>
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="notifications"
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <View>
-              <TabIcon emoji="🔔" focused={focused} />
-              {unreadCount > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-                </View>
-              )}
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="feed"
+          options={{
+            tabBarIcon: ({ focused }) => <TabIcon icon="feed" focused={focused} />,
+          }}
+        />
+        <Tabs.Screen
+          name="map"
+          options={{
+            tabBarIcon: ({ focused }) => <TabIcon icon="map" focused={focused} />,
+          }}
+        />
+        <Tabs.Screen
+          name="friends"
+          options={{
+            tabBarIcon: ({ focused }) => <TabIcon icon="friends" focused={focused} />,
+          }}
+        />
+        <Tabs.Screen
+          name="notifications"
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <View>
+                <TabIcon icon="notifications" focused={focused} />
+                {unreadCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                  </View>
+                )}
+              </View>
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            tabBarIcon: ({ focused }) => <TabIcon icon="profile" focused={focused} />,
+          }}
+        />
+      </Tabs>
+    </View>
   );
 }
 
@@ -80,17 +101,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgCard,
     borderTopColor: COLORS.border,
     borderTopWidth: 1,
-    height: 80,
-    paddingBottom: 20,
-  },
-  captureBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: COLORS.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
+    height: 92,
+    paddingBottom: 18,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    overflow: 'hidden',
   },
   badge: {
     position: 'absolute',

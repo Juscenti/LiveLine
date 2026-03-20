@@ -16,16 +16,38 @@ function normalizeStatus(raw: string | null | undefined) {
 }
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
-  // Avoid PostgREST relationship inference on `v_friends` (a view).
-  // Instead: fetch friend ids from the view, then fetch users explicitly.
-  const { data: vfData, error: vfError } = await supabaseAdmin
-    .from('v_friends')
-    .select('id, friend_id, created_at')
-    .eq('user_id', req.userId);
+  // Avoid PostgREST relationship inference on views (like `v_friends`).
+  // Instead, query `friendships` directly and compute `friend_id` in JS.
+  const { data: q1, error: q1Error } = await supabaseAdmin
+    .from('friendships')
+    .select('id, addressee_id, created_at')
+    .eq('requester_id', req.userId)
+    .eq('status', 'accepted');
 
-  if (vfError) return res.status(500).json({ error: vfError.message, data: null });
+  if (q1Error) return res.status(500).json({ error: q1Error.message, data: null });
 
-  const friendIds = (vfData ?? []).map((row: any) => row.friend_id).filter(Boolean);
+  const { data: q2, error: q2Error } = await supabaseAdmin
+    .from('friendships')
+    .select('id, requester_id, created_at')
+    .eq('addressee_id', req.userId)
+    .eq('status', 'accepted');
+
+  if (q2Error) return res.status(500).json({ error: q2Error.message, data: null });
+
+  const rows = [
+    ...(q1 ?? []).map((r: any) => ({
+      id: r.id,
+      friend_id: r.addressee_id,
+      created_at: r.created_at,
+    })),
+    ...(q2 ?? []).map((r: any) => ({
+      id: r.id,
+      friend_id: r.requester_id,
+      created_at: r.created_at,
+    })),
+  ];
+
+  const friendIds = rows.map((r) => r.friend_id).filter(Boolean);
   if (friendIds.length === 0) return res.json({ data: [], error: null });
 
   const { data: usersData, error: usersError } = await supabaseAdmin
@@ -37,10 +59,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
   const byId = new Map((usersData ?? []).map((u: any) => [u.id, u]));
 
-  // Match what the mobile client expects:
-  // - `friend_id` for remove/delete
-  // - nested `users` object for display fields
-  const friends = (vfData ?? []).map((row: any) => ({
+  const friends = rows.map((row: any) => ({
     id: row.id,
     friend_id: row.friend_id,
     created_at: row.created_at,

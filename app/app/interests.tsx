@@ -46,7 +46,7 @@ export default function InterestsScreen() {
     try {
       await usersApi.updateInterests(Array.from(selected));
       Alert.alert('Saved', 'Your interests were updated.');
-      router.back();
+      router.replace('/profile');
     } catch (e: any) {
       Alert.alert('Save failed', e?.response?.data?.error ?? e?.message ?? 'Unknown error');
     } finally {
@@ -57,7 +57,7 @@ export default function InterestsScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={() => router.replace('/profile')}>
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Interests</Text>
