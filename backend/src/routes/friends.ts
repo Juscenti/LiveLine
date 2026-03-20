@@ -16,13 +16,38 @@ function normalizeStatus(raw: string | null | undefined) {
 }
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
-  const { data, error } = await supabaseAdmin
+  // Avoid PostgREST relationship inference on `v_friends` (a view).
+  // Instead: fetch friend ids from the view, then fetch users explicitly.
+  const { data: vfData, error: vfError } = await supabaseAdmin
     .from('v_friends')
-    .select('friend_id, users!friend_id(id, username, display_name, profile_picture_url)')
+    .select('id, friend_id, created_at')
     .eq('user_id', req.userId);
 
-  if (error) return res.status(500).json({ error: error.message, data: null });
-  return res.json({ data, error: null });
+  if (vfError) return res.status(500).json({ error: vfError.message, data: null });
+
+  const friendIds = (vfData ?? []).map((row: any) => row.friend_id).filter(Boolean);
+  if (friendIds.length === 0) return res.json({ data: [], error: null });
+
+  const { data: usersData, error: usersError } = await supabaseAdmin
+    .from('users')
+    .select('id, username, display_name, profile_picture_url')
+    .in('id', friendIds);
+
+  if (usersError) return res.status(500).json({ error: usersError.message, data: null });
+
+  const byId = new Map((usersData ?? []).map((u: any) => [u.id, u]));
+
+  // Match what the mobile client expects:
+  // - `friend_id` for remove/delete
+  // - nested `users` object for display fields
+  const friends = (vfData ?? []).map((row: any) => ({
+    id: row.id,
+    friend_id: row.friend_id,
+    created_at: row.created_at,
+    users: byId.get(row.friend_id) ?? null,
+  }));
+
+  return res.json({ data: friends, error: null });
 });
 
 // Pending outgoing requests (where I am the requester)

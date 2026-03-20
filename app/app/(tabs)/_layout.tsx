@@ -33,9 +33,9 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="map"
+        name="friends"
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📍" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="👥" focused={focused} />,
         }}
       />
       {/* Center capture button — navigates to camera modal */}
