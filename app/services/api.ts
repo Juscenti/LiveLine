@@ -3,6 +3,7 @@
 // ============================================================
 import axios from 'axios';
 import { supabase } from './supabase';
+import { getAccessToken } from './accessTokenStore';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 if (!BASE_URL) {
@@ -42,9 +43,15 @@ api.interceptors.request.use(async (config) => {
   if (isAuthFree) return config;
 
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      config.headers.Authorization = `Bearer ${session.access_token}`;
+    // Prefer backend-issued token we stored during login/register.
+    const token = getAccessToken();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    else {
+      // Fallback: supabase session (may fail/hang in some environments).
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        config.headers.Authorization = `Bearer ${session.access_token}`;
+      }
     }
   } catch {
     // If getting a session fails (e.g., anon key issues), just send without Authorization.

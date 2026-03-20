@@ -21,7 +21,12 @@ export default function LoginScreen() {
       await login(email.trim().toLowerCase(), password);
       router.replace('/(tabs)/feed');
     } catch (e: any) {
-      Alert.alert('Login failed', e.message ?? 'Please check your credentials.');
+      const msg =
+        e?.response?.data?.error ??
+        e?.response?.data?.message ??
+        e?.message ??
+        'Please check your credentials.';
+      Alert.alert('Login failed', msg);
     }
   };
 

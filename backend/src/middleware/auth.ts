@@ -7,6 +7,7 @@ import { supabaseAdmin } from '../config/supabase';
 export interface AuthRequest extends Request {
   userId?: string;
   userAuthId?: string;
+  accessToken?: string;
 }
 
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
@@ -37,6 +38,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
 
     req.userId     = profile.id;
     req.userAuthId = user.id;
+    req.accessToken = token;
     next();
   } catch {
     res.status(401).json({ error: 'Token verification failed', data: null });

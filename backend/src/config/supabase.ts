@@ -19,3 +19,12 @@ export const supabaseAnon = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY!
 );
+
+// Create a user-scoped client that includes the caller's JWT so RLS policies
+// depending on `auth.uid()` work as expected.
+export const createSupabaseUserClient = (accessToken: string) => {
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+};

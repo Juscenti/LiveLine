@@ -4,7 +4,21 @@
 import { create } from 'zustand';
 import { supabase } from '@/services/supabase';
 import { authApi } from '@/services/api';
+import { clearAccessToken, setAccessToken } from '@/services/accessTokenStore';
 import type { User } from '@/types';
+
+const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((_resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out. Please try again.`)), ms);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
 
 interface AuthState {
   user: User | null;
@@ -57,7 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (email: string, password: string) => {
     set({ isLoading: true });
     try {
-      const resp = await authApi.login({ email, password });
+      const resp = await withTimeout(authApi.login({ email, password }), 30000, 'Login');
       const session =
         resp?.data?.data?.session ??
         resp?.data?.session ??
@@ -67,10 +81,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         throw new Error(resp?.data?.error ?? 'Login failed (missing session)');
       }
 
-      await supabase.auth.setSession({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-      });
+      // Immediately store the backend-issued token so our axios interceptor can
+      // attach Authorization headers even if Supabase's `setSession` is slow.
+      setAccessToken(session.access_token);
+
+      // Fire-and-forget: Supabase `setSession` can hang in some environments.
+      void withTimeout(
+        supabase.auth.setSession({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        }),
+        12000,
+        'Supabase session',
+      ).catch(() => {});
 
       // Use the user returned by the backend to avoid an extra `/auth/me` round-trip
       // (which depends on Authorization + anon-key behavior).
@@ -84,7 +107,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (email: string, password: string, username: string) => {
     set({ isLoading: true });
     try {
-      const resp = await authApi.register({ email, password, username });
+      const resp = await withTimeout(authApi.register({ email, password, username }), 30000, 'Registration');
       const session =
         resp?.data?.data?.session ??
         resp?.data?.session ??
@@ -94,10 +117,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         throw new Error(resp?.data?.error ?? 'Registration failed (missing session)');
       }
 
-      await supabase.auth.setSession({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-      });
+      setAccessToken(session.access_token);
+
+      // Fire-and-forget Supabase session setup to prevent UI hangs.
+      void withTimeout(
+        supabase.auth.setSession({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        }),
+        12000,
+        'Supabase session',
+      ).catch(() => {});
 
       const user = resp?.data?.data?.user ?? resp?.data?.user ?? null;
       set({ user: user ?? null, session });
@@ -112,6 +142,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       // ignore: signOut can fail if the anon key is invalid
     }
+    clearAccessToken();
     set({ user: null, session: null });
   },
 
