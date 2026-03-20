@@ -1,0 +1,280 @@
+LIVELINE — FULL TECHNICAL DOCUMENTATION
+
+1. APPLICATION OVERVIEW
+
+App Name
+Liveline
+
+Core Concept
+Liveline is a real-time social application centered around live presence, short-form moments, and identity
+expression through music and activity. The platform allows users to share 5-second visual snippets, track
+friends on a live map, and display their current or recent music activity.
+
+Core Philosophy
+Liveline is not a traditional social media platform. It is designed around:
+- Real-time interaction
+- Lightweight, low-pressure sharing
+- Continuous presence awareness
+
+Primary User Action
+Capture and share short, real-time moments.
+
+
+2. CORE FEATURES
+
+2.1 Moment Feed
+- Pinterest-style grid layout
+- 5-second video/image posts
+- Auto-play previews
+- Timestamp-based relevance ("2 min ago")
+- Optional expiration (e.g., 24-hour lifecycle)
+
+2.2 Live Map
+- Real-time friend locations (if enabled)
+- Displays:
+  - Current location
+  - Activity status
+  - Music activity
+  - Interactive friend markers
+  - Mini-profile popup on tap
+
+2.3 Music Integration
+Supports multiple platforms:
+- Spotify
+- Apple Music
+- SoundCloud
+
+Capabilities:
+- Display currently playing track
+- Show recently played music
+- Attach music to posts
+- Sync playback (where supported)
+
+Unified Music Data Format
+All music data is normalized into a consistent structure:
+{ "song": "Track Name", "artist": "Artist Name", "cover": "image_url", "source": "spotify | apple | soundcloud" }
+
+2.4 Profile System
+- Profile picture (PFP)
+- Banner image
+- Username + display name
+- Bio
+- Interests (tag-based)
+- Music identity (top tracks)
+- Activity timeline
+
+2.5 Friends System
+- Add/remove friends
+- Search users
+- Friend list view
+- View friend profiles
+
+2.6 Media Upload System
+Users can:
+- Capture 5-second videos via camera
+- Upload images from gallery
+- Upload short video clips (≤ 5 seconds)
+
+Restrictions:
+- No long-form video uploads
+- Backend validation required
+
+
+3. TECH STACK
+
+3.1 Frontend
+React Native (Expo)
+Responsibilities:
+- UI rendering
+- Camera access
+- Media capture
+- Map rendering
+- API communication
+
+3.2 Backend
+Node.js + Express
+Responsibilities:
+- Business logic
+- Security validation
+- Media processing coordination
+- API routing
+
+3.3 Backend Services
+Supabase
+Components Used:
+- PostgreSQL Database
+- Authentication
+- Realtime subscriptions
+- Storage (media files)
+
+3.4 External Services
+
+Maps:
+- Mapbox
+
+Music APIs:
+- Spotify API
+- Apple Music (MusicKit)
+- SoundCloud API
+
+Notifications:
+- Expo Notifications (initial)
+- Firebase Cloud Messaging (scaling)
+
+Media Processing:
+- FFmpeg
+
+
+4. DATABASE DESIGN (SUPABASE - POSTGRESQL)
+
+4.1 Users Table
+- id (primary key)
+- username
+- email
+- password_hash
+- display_name
+- bio
+- profile_picture_url
+- banner_url
+- created_at
+
+4.2 Friendships Table
+- id
+- user_id
+- friend_id
+- status (pending, accepted, blocked)
+- created_at
+
+4.3 Posts Table
+- id
+- user_id
+- media_url
+- media_type (image/video)
+- caption
+- created_at
+- expires_at (optional)
+
+4.4 Music Activity Table
+- id
+- user_id
+- song
+- artist
+- cover_url
+- source
+- is_currently_playing
+- updated_at
+
+4.5 Locations Table
+- id
+- user_id
+- latitude
+- longitude
+- last_updated
+- visibility (public/friends/private)
+
+4.6 Interests Table
+- id
+- name
+
+4.7 User Interests Table
+- id
+- user_id
+- interest_id
+
+4.8 Notifications Table
+- id
+- user_id
+- type
+- content
+- is_read
+- created_at
+
+
+5. REAL-TIME SYSTEM
+
+Supabase Realtime
+Used for:
+- Live feed updates
+- Music activity updates
+- Location updates
+
+Future Upgrade:
+- Redis for high-frequency updates
+
+
+6. MEDIA PROCESSING SYSTEM
+
+Tool: FFmpeg
+
+Purpose:
+- Compress videos
+- Resize videos
+- Convert formats
+- Generate thumbnails
+
+Processing Flow:
+1. User uploads media
+2. Backend validates file
+3. FFmpeg processes media
+4. Optimized file stored in Supabase Storage
+
+
+7. API ARCHITECTURE
+
+Structure:
+Client → Node.js API → Supabase
+
+Responsibilities of API Layer:
+- Validate requests
+- Execute business logic
+- Protect database
+- Handle media workflows
+
+
+8. SECURITY SYSTEM
+- JWT-based authentication (via Supabase)
+- Backend validation for all uploads
+- Rate limiting
+- Protected routes
+
+
+9. PERFORMANCE CONSIDERATIONS
+
+Key Challenges:
+- Real-time updates
+- Video bandwidth
+- Battery usage (location tracking)
+
+Solutions:
+- Throttled location updates
+- Media compression
+- Efficient subscriptions
+
+
+10. DEVELOPMENT ROADMAP (MVP)
+
+Phase 1:
+- Authentication
+- Profile system
+- Basic posting (image/video)
+
+Phase 2:
+- Feed system
+- Friend system
+
+Phase 3:
+- Map integration
+- Music integration (Spotify first)
+
+Phase 4:
+- Notifications
+- Optimization
+
+
+11. FUTURE SCALING
+- Introduce Redis for real-time optimization
+- Add advanced presence tracking
+- Expand music integrations
+- Improve recommendation systems
+
+END OF DOCUMENTATION

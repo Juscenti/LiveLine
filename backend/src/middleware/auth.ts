@@ -1,0 +1,90 @@
+// ============================================================
+// middleware/auth.ts — JWT verification via Supabase
+// ============================================================
+import { Request, Response, NextFunction } from 'express';
+import { supabaseAdmin } from '../config/supabase';
+
+export interface AuthRequest extends Request {
+  userId?: string;
+  userAuthId?: string;
+}
+
+export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized', data: null });
+  }
+
+  try {
+    // Verify JWT via Supabase
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid token', data: null });
+    }
+
+    // Look up public.users record
+    const { data: profile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('auth_id', user.id)
+      .single();
+
+    if (profileErr || !profile) {
+      return res.status(401).json({ error: 'User profile not found', data: null });
+    }
+
+    req.userId     = profile.id;
+    req.userAuthId = user.id;
+    next();
+  } catch {
+    res.status(401).json({ error: 'Token verification failed', data: null });
+  }
+}
+
+// ============================================================
+// middleware/errorHandler.ts
+// ============================================================
+import { Request, Response, NextFunction } from 'express';
+
+export function errorHandler(err: any, _req: Request, res: Response, _next: NextFunction) {
+  console.error('[Error]', err);
+  const status  = err.status ?? err.statusCode ?? 500;
+  const message = err.message ?? 'Internal server error';
+  res.status(status).json({ error: message, data: null });
+}
+
+// ============================================================
+// middleware/requestLogger.ts
+// ============================================================
+import { Request, Response, NextFunction } from 'express';
+
+export function requestLogger(req: Request, _res: Response, next: NextFunction) {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  }
+  next();
+}
+
+// ============================================================
+// middleware/upload.ts — Multer config for media uploads
+// ============================================================
+import multer from 'multer';
+
+const ALLOWED_MIME = [
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  'video/mp4', 'video/quicktime', 'video/webm',
+];
+
+export const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 52_428_800 }, // 50 MB
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file type: ${file.mimetype}`));
+    }
+  },
+});

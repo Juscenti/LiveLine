@@ -1,0 +1,19 @@
+{
+  "name": "liveline",
+  "private": true,
+  "workspaces": ["app", "backend"],
+  "scripts": {
+    "app": "yarn workspace app start",
+    "backend": "yarn workspace backend dev",
+    "dev": "concurrently \"yarn backend\" \"yarn app\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "overrides": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  }
+}

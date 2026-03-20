@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "Liveline",
+    "slug": "liveline",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0A"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.liveline.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Liveline uses your camera to capture moments.",
+        "NSMicrophoneUsageDescription": "Liveline uses your microphone to record moments.",
+        "NSLocationWhenInUseUsageDescription": "Liveline uses your location to show you on the live map.",
+        "NSPhotoLibraryUsageDescription": "Liveline accesses your photos to let you post moments."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A0A"
+      },
+      "package": "com.liveline.app",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-camera",
+      "expo-location",
+      [
+        "expo-notifications",
+        {
+          "color": "#00FF94"
+        }
+      ]
+    ],
+    "scheme": "liveline",
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
