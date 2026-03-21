@@ -7,8 +7,23 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { rewriteLocalhostForAndroidEmulator } from '@/utils/devNetwork';
 
-const SUPABASE_URL = rewriteLocalhostForAndroidEmulator(process.env.EXPO_PUBLIC_SUPABASE_URL ?? '');
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+/** Windows .env often adds \\r; BOM breaks URL parsing — both break the anon JWT "apikey" header. */
+function normalizeEnv(s: string): string {
+  return s.replace(/^\uFEFF/, '').trim().replace(/\r$/, '');
+}
+
+function isPlausibleSupabaseAnonKey(key: string): boolean {
+  if (!key) return false;
+  // New hosted keys (see Supabase Settings → API Keys)
+  if (key.startsWith('sb_publishable_')) return true;
+  // Legacy anon / service JWT
+  return key.split('.').length === 3;
+}
+
+const SUPABASE_URL = rewriteLocalhostForAndroidEmulator(
+  normalizeEnv(process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''),
+);
+const SUPABASE_ANON_KEY = normalizeEnv(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '');
 
 // Fail fast if env vars were not injected into the JS bundle.
 if (!SUPABASE_URL) {
@@ -17,8 +32,10 @@ if (!SUPABASE_URL) {
 if (!SUPABASE_ANON_KEY) {
   throw new Error('Missing env: EXPO_PUBLIC_SUPABASE_ANON_KEY');
 }
-if (typeof SUPABASE_ANON_KEY !== 'string' || SUPABASE_ANON_KEY.split('.').length !== 3) {
-  throw new Error('Supabase anon key does not look like a valid JWT.');
+if (!isPlausibleSupabaseAnonKey(SUPABASE_ANON_KEY)) {
+  throw new Error(
+    'EXPO_PUBLIC_SUPABASE_ANON_KEY must be the anon JWT (legacy) or publishable key (sb_publishable_…) from Supabase → Settings → API.',
+  );
 }
 
 // Use SecureStore on device, localStorage on web

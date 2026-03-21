@@ -6,9 +6,7 @@ App Name
 Liveline
 
 Core Concept
-Liveline is a real-time social application centered around live presence, short-form moments, and identity
-expression through music and activity. The platform allows users to share 5-second visual snippets, track
-friends on a live map, and display their current or recent music activity.
+c
 
 Core Philosophy
 Liveline is not a traditional social media platform. It is designed around:
