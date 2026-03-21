@@ -8,10 +8,10 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
-import { wakeBackend } from '@/services/api';
 
-if (__DEV__) {
+if (__DEV__ && process.env.EXPO_PUBLIC_VERBOSE_NETWORK_LOGS !== 'true') {
   // Transient offline / emulator DNS noise while Supabase or API retries.
+  // Set EXPO_PUBLIC_VERBOSE_NETWORK_LOGS=true to surface these in LogBox.
   LogBox.ignoreLogs(['Network request failed', 'AuthRetryableFetchError']);
 }
 
@@ -25,8 +25,6 @@ export default function RootLayout() {
   const initialize = useAuthStore((s) => s.initialize);
 
   useEffect(() => {
-    // Don't block auth on backend wake (parallel). Emulator localhost fix is in api/supabase.
-    void wakeBackend();
     void initialize();
   }, []);
 

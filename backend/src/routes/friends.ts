@@ -1,10 +1,17 @@
 import { Router } from 'express';
 import type { Response } from 'express';
+import { z } from 'zod';
 import { createSupabaseUserClient } from '../config/supabase';
 import { requireAuth } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 
 const router = Router();
+
+const uuidSchema = z.string().uuid();
+
+function badUuid(res: Response) {
+  return res.status(400).json({ error: 'Invalid id', data: null });
+}
 
 function normalizeStatus(raw: string | null | undefined) {
   if (!raw) return 'none';
@@ -87,7 +94,9 @@ router.get('/outgoing', requireAuth, async (req: AuthRequest, res: Response) => 
 // Relationship status between me and a target user.
 // Returns: none | accepted | pending_incoming | pending_outgoing | declined | blocked
 router.get('/status/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
-  const targetId = req.params.userId;
+  const parsed = uuidSchema.safeParse(req.params.userId);
+  if (!parsed.success) return badUuid(res);
+  const targetId = parsed.data;
 
   const db = createSupabaseUserClient(req.accessToken!);
   const { data, error } = await db
@@ -130,10 +139,12 @@ router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => 
 });
 
 router.post('/request/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+  const parsed = uuidSchema.safeParse(req.params.userId);
+  if (!parsed.success) return badUuid(res);
   const db = createSupabaseUserClient(req.accessToken!);
   const { data, error } = await db
     .from('friendships')
-    .insert({ requester_id: req.userId, addressee_id: req.params.userId })
+    .insert({ requester_id: req.userId, addressee_id: parsed.data })
     .select()
     .single();
 
@@ -148,11 +159,13 @@ router.post('/request/:userId', requireAuth, async (req: AuthRequest, res: Respo
 });
 
 router.patch('/:id/accept', requireAuth, async (req: AuthRequest, res: Response) => {
+  const idParsed = uuidSchema.safeParse(req.params.id);
+  if (!idParsed.success) return badUuid(res);
   const db = createSupabaseUserClient(req.accessToken!);
   const { error } = await db
     .from('friendships')
     .update({ status: 'accepted' })
-    .eq('id', req.params.id)
+    .eq('id', idParsed.data)
     .eq('addressee_id', req.userId);
 
   if (error) return res.status(500).json({ error: error.message, data: null });
@@ -160,11 +173,13 @@ router.patch('/:id/accept', requireAuth, async (req: AuthRequest, res: Response)
 });
 
 router.patch('/:id/decline', requireAuth, async (req: AuthRequest, res: Response) => {
+  const idParsed = uuidSchema.safeParse(req.params.id);
+  if (!idParsed.success) return badUuid(res);
   const db = createSupabaseUserClient(req.accessToken!);
   const { error } = await db
     .from('friendships')
     .update({ status: 'declined' })
-    .eq('id', req.params.id)
+    .eq('id', idParsed.data)
     .eq('addressee_id', req.userId);
 
   if (error) return res.status(500).json({ error: error.message, data: null });
@@ -172,26 +187,33 @@ router.patch('/:id/decline', requireAuth, async (req: AuthRequest, res: Response
 });
 
 router.delete('/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+  const parsed = uuidSchema.safeParse(req.params.userId);
+  if (!parsed.success) return badUuid(res);
+  const targetId = parsed.data;
   const db = createSupabaseUserClient(req.accessToken!);
-  await db
+  const { error } = await db
     .from('friendships')
     .delete()
     .or(
-      `and(requester_id.eq.${req.userId},addressee_id.eq.${req.params.userId}),` +
-      `and(requester_id.eq.${req.params.userId},addressee_id.eq.${req.userId})`
+      `and(requester_id.eq.${req.userId},addressee_id.eq.${targetId}),` +
+      `and(requester_id.eq.${targetId},addressee_id.eq.${req.userId})`
     );
 
+  if (error) return res.status(500).json({ error: error.message, data: null });
   return res.json({ data: { removed: true }, error: null });
 });
 
 router.post('/block/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+  const parsed = uuidSchema.safeParse(req.params.userId);
+  if (!parsed.success) return badUuid(res);
+  const targetId = parsed.data;
   const db = createSupabaseUserClient(req.accessToken!);
   const { error } = await db
     .from('friendships')
     .update({ status: 'blocked' })
     .or(
-      `and(requester_id.eq.${req.userId},addressee_id.eq.${req.params.userId}),` +
-      `and(requester_id.eq.${req.params.userId},addressee_id.eq.${req.userId})`
+      `and(requester_id.eq.${req.userId},addressee_id.eq.${targetId}),` +
+      `and(requester_id.eq.${targetId},addressee_id.eq.${req.userId})`
     );
 
   if (error) return res.status(500).json({ error: error.message, data: null });

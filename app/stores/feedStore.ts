@@ -66,9 +66,9 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     try {
       const { data } = await postsApi.getFeed();
       set({
-        posts: normalizeFeedPosts(data.data),
-        cursor: data.cursor,
-        hasMore: data.has_more,
+        posts: normalizeFeedPosts(data?.data),
+        cursor: data?.cursor ?? null,
+        hasMore: data?.has_more ?? false,
       });
     } catch {
       set({ posts: [], cursor: null, hasMore: false });
@@ -84,9 +84,9 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     try {
       const { data } = await postsApi.getFeed(cursor ?? undefined);
       set((s) => ({
-        posts: [...s.posts, ...normalizeFeedPosts(data.data)],
-        cursor: data.cursor,
-        hasMore: data.has_more,
+        posts: [...s.posts, ...normalizeFeedPosts(data?.data)],
+        cursor: data?.cursor ?? null,
+        hasMore: data?.has_more ?? false,
       }));
     } catch {
       set({ hasMore: false });
@@ -100,9 +100,9 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     try {
       const { data } = await postsApi.getFeed();
       set({
-        posts: normalizeFeedPosts(data.data),
-        cursor: data.cursor,
-        hasMore: data.has_more,
+        posts: normalizeFeedPosts(data?.data),
+        cursor: data?.cursor ?? null,
+        hasMore: data?.has_more ?? false,
       });
     } catch {
       // Keep existing posts if refresh fails.
@@ -157,8 +157,12 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     set((s) => ({ posts: s.posts.filter((p) => p.id !== postId) })),
 
   deletePost: async (postId) => {
-    await postsApi.delete(postId);
-    set((s) => ({ posts: s.posts.filter((p) => p.id !== postId) }));
+    try {
+      await postsApi.delete(postId);
+      set((s) => ({ posts: s.posts.filter((p) => p.id !== postId) }));
+    } catch {
+      throw new Error('Could not delete post.');
+    }
   },
 
   prependPost: (post) =>

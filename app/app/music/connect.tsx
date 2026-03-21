@@ -11,6 +11,7 @@ export default function MusicConnectScreen() {
   const { connectedPlatforms, connectPlatform, disconnectPlatform, startPolling, stopPolling } = useMusicStore();
   const [loadingAuthUrl, setLoadingAuthUrl] = useState(false);
   const [debugCode, setDebugCode] = useState('');
+  const [lastSpotifyState, setLastSpotifyState] = useState('');
 
   const isSpotifyConnected = useMemo(() => connectedPlatforms.includes('spotify'), [connectedPlatforms]);
   const isAppleConnected = useMemo(() => connectedPlatforms.includes('apple_music'), [connectedPlatforms]);
@@ -20,6 +21,7 @@ export default function MusicConnectScreen() {
     try {
       const { data } = await musicApi.getSpotifyAuthUrl();
       if (!data?.url) throw new Error('Missing auth url from backend.');
+      if (typeof data.state === 'string') setLastSpotifyState(data.state);
       await Linking.openURL(data.url);
     } catch (e: any) {
       Alert.alert('Spotify link unavailable', e?.response?.data?.error ?? e?.message ?? 'Unknown error');
@@ -44,7 +46,10 @@ export default function MusicConnectScreen() {
   const tryDebugConnect = async () => {
     try {
       if (!debugCode.trim()) return Alert.alert('Missing code', 'Paste the Spotify authorization code from the redirect URL.');
-      await connectPlatform('spotify', debugCode.trim());
+      if (!lastSpotifyState) {
+        return Alert.alert('Missing state', 'Tap “Connect Spotify” first so the app stores OAuth state, then paste the code.');
+      }
+      await connectPlatform('spotify', debugCode.trim(), lastSpotifyState);
       Alert.alert('Connected', 'Spotify connection saved.');
       // Start syncing if we have a connection.
       startPolling();

@@ -20,26 +20,67 @@ import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 
 const app = express();
-const PORT = Number(process.env.PORT ?? 4000);
+
+const rawPort = Number(process.env.PORT ?? 4000);
+const PORT = Number.isFinite(rawPort) && rawPort > 0 ? rawPort : 4000;
+
+function rateLimitNumber(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function parseCorsOrigins(): string[] {
+  const raw = process.env.CORS_ORIGINS?.trim();
+  if (!raw) return [];
+  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+const corsAllowedOrigins = parseCorsOrigins();
 
 // ── Security middleware ──────────────────────────────────────
 app.use(helmet());
-app.use(cors({
-  // Native mobile apps don't use browser CORS rules, but axios/xhr/web do.
-  // Using `origin: true` reflects the incoming `Origin` header and prevents
-  // Render/Expo environments from being blocked.
-  origin: true,
-  credentials: true,
-}));
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, callback) {
+      // Native apps, curl, server-to-server — no Origin header
+      if (!origin) return callback(null, true);
+      if (corsAllowedOrigins.length === 0) {
+        // Dev / same-machine: reflect Origin (set CORS_ORIGINS in production web clients)
+        return callback(null, true);
+      }
+      if (corsAllowedOrigins.includes(origin)) return callback(null, true);
+      return callback(null, false);
+    },
+  }),
+);
 
 // ── Rate limiting ────────────────────────────────────────────
-// Dev + mobile apps hit many endpoints; default 100/15min caused 429 during normal use.
-const limiter = rateLimit({
-  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 900_000),
-  max:      Number(process.env.RATE_LIMIT_MAX ?? 800),
+// Stricter limits on credential endpoints (shared bucket was too loose for brute force).
+const authLimiter = rateLimit({
+  windowMs: rateLimitNumber(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 900_000),
+  max: rateLimitNumber(process.env.AUTH_RATE_LIMIT_MAX, 25),
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+const limiter = rateLimit({
+  windowMs: rateLimitNumber(process.env.RATE_LIMIT_WINDOW_MS, 900_000),
+  max: rateLimitNumber(process.env.RATE_LIMIT_MAX, 800),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use((req, res, next) => {
+  if (
+    req.method === 'POST' &&
+    (req.path === '/api/auth/login' || req.path === '/api/auth/register')
+  ) {
+    return authLimiter(req, res, next);
+  }
+  next();
+});
+
 app.use('/api/', limiter);
 
 // ── Body parsing ─────────────────────────────────────────────

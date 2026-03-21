@@ -137,18 +137,34 @@ export default function FriendsTabScreen() {
   }, [loadFriendsData, loadConversations]);
 
   const accept = async (friendshipId: string) => {
-    await friendsApi.acceptRequest(friendshipId);
-    await loadFriendsData();
+    try {
+      await friendsApi.acceptRequest(friendshipId);
+      await loadFriendsData();
+    } catch (e: unknown) {
+      Alert.alert('Could not accept', formatApiError(e));
+    }
   };
 
   const decline = async (friendshipId: string) => {
-    await friendsApi.declineRequest(friendshipId);
-    await loadFriendsData();
+    try {
+      await friendsApi.declineRequest(friendshipId);
+      await loadFriendsData();
+    } catch (e: unknown) {
+      Alert.alert('Could not decline', formatApiError(e));
+    }
   };
 
   const remove = async (userId: string) => {
-    await friendsApi.remove(userId);
-    await loadFriendsData();
+    if (!userId) {
+      Alert.alert('Invalid request', 'Missing friend id.');
+      return;
+    }
+    try {
+      await friendsApi.remove(userId);
+      await loadFriendsData();
+    } catch (e: unknown) {
+      Alert.alert('Could not remove', formatApiError(e));
+    }
   };
 
   const sendRequest = async (userId: string) => {
@@ -162,9 +178,9 @@ export default function FriendsTabScreen() {
   };
 
   const openDm = useCallback(async (otherUserId: string) => {
-    const cid = await getOrCreateDirectConversation(otherUserId);
-    if (cid) router.push(`/messages/${cid}`);
-    else Alert.alert('Cannot open chat', 'You can only message people you’re friends with.');
+    const r = await getOrCreateDirectConversation(otherUserId);
+    if (r.ok) router.push(`/messages/${r.conversationId}`);
+    else Alert.alert('Cannot open chat', r.message);
   }, []);
 
   const fetchStatuses = useCallback(async (users: UserLike[]) => {
@@ -424,7 +440,11 @@ export default function FriendsTabScreen() {
                         user={user}
                         onPress={() => addresseeId && router.push(`/profile/${addresseeId}`)}
                         trailing={
-                          <PillButton label="Cancel" variant="outline" onPress={() => remove(r.addressee_id)} />
+                            <PillButton
+                              label="Cancel"
+                              variant="outline"
+                              onPress={() => remove(addresseeId ?? '')}
+                            />
                         }
                       />
                     );
@@ -445,24 +465,28 @@ export default function FriendsTabScreen() {
         ) : (
           friends.map((f) => {
             const friendUser = f.users ?? f.user ?? null;
-            const friendId = f.friend_id ?? f.id;
+            // Never use f.id here — it is the friendship row id, not the friend's public.users id.
+            const friendUserId = f.friend_id != null ? String(f.friend_id) : friendUser?.id ? String(friendUser.id) : null;
             const user =
               friendUser && friendUser.id
                 ? (friendUser as UserLike)
-                : ({
-                    id: friendId,
-                    username: String(friendId),
-                    display_name: 'Friend',
-                  } as UserLike);
+                : friendUserId
+                  ? ({
+                      id: friendUserId,
+                      username: friendUserId,
+                      display_name: 'Friend',
+                    } as UserLike)
+                  : null;
+            if (!user || !friendUserId) return null;
             return (
               <PersonRow
-                key={String(friendId)}
+                key={String(friendUserId)}
                 user={user}
-                onPress={() => router.push(`/profile/${friendId}`)}
+                onPress={() => router.push(`/profile/${friendUserId}`)}
                 trailing={
                   <View style={styles.actionStack}>
-                    <PillButton label="Message" onPress={() => void openDm(String(friendId))} />
-                    <PillButton label="Remove" variant="outline" onPress={() => remove(String(friendId))} />
+                    <PillButton label="Message" onPress={() => void openDm(friendUserId)} />
+                    <PillButton label="Remove" variant="outline" onPress={() => remove(friendUserId)} />
                   </View>
                 }
               />

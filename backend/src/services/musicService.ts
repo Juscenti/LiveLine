@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { supabaseAdmin } from '../config/supabase';
+import { consumeSpotifyOAuthState } from './oauthStateStore';
 
 type SpotifyTokenResponse = {
   access_token: string;
@@ -61,7 +62,11 @@ async function refreshSpotifyAccessToken(conn: any) {
 }
 
 export const musicService = {
-  async connectSpotify(userId: string, code: string) {
+  async connectSpotify(userId: string, code: string, state: string) {
+    if (!consumeSpotifyOAuthState(state, userId)) {
+      throw new Error('Invalid or expired OAuth state. Open the music link again from the app.');
+    }
+
     const clientId = process.env.SPOTIFY_CLIENT_ID;
     const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
     const redirectUri = process.env.SPOTIFY_REDIRECT_URI;

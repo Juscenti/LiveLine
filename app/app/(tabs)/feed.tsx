@@ -36,6 +36,7 @@ export default function FeedScreen() {
 
   useEffect(() => {
     loadFeed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only
   }, []);
 
   const renderItem = useCallback(

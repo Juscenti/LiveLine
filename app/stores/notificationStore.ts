@@ -28,12 +28,15 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     set({ isLoading: true });
     try {
       const { data } = await notificationsApi.getAll();
+      const rows = Array.isArray(data?.data) ? data.data : [];
       set({
-        notifications: data.data,
-        cursor: data.cursor,
-        hasMore: data.has_more,
-        unreadCount: data.data.filter((n: Notification) => !n.is_read).length,
+        notifications: rows,
+        cursor: data?.cursor ?? null,
+        hasMore: data?.has_more ?? false,
+        unreadCount: rows.filter((n: Notification) => !n.is_read).length,
       });
+    } catch {
+      set({ notifications: [], cursor: null, hasMore: false, unreadCount: 0 });
     } finally {
       set({ isLoading: false });
     }
@@ -45,30 +48,45 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     set({ isLoading: true });
     try {
       const { data } = await notificationsApi.getAll(cursor ?? undefined);
+      const next = Array.isArray(data?.data) ? data.data : [];
       set((s) => ({
-        notifications: [...s.notifications, ...data.data],
-        cursor: data.cursor,
-        hasMore: data.has_more,
+        notifications: [...s.notifications, ...next],
+        cursor: data?.cursor ?? null,
+        hasMore: data?.has_more ?? false,
       }));
+    } catch {
+      set({ hasMore: false });
     } finally {
       set({ isLoading: false });
     }
   },
 
   markRead: async (id) => {
+    const prev = get().notifications;
+    const prevUnread = get().unreadCount;
     set((s) => ({
       notifications: s.notifications.map((n) => (n.id === id ? { ...n, is_read: true } : n)),
       unreadCount: Math.max(s.unreadCount - 1, 0),
     }));
-    await notificationsApi.markRead(id);
+    try {
+      await notificationsApi.markRead(id);
+    } catch {
+      set({ notifications: prev, unreadCount: prevUnread });
+    }
   },
 
   markAllRead: async () => {
+    const prev = get().notifications;
+    const prevUnread = get().unreadCount;
     set((s) => ({
       notifications: s.notifications.map((n) => ({ ...n, is_read: true })),
       unreadCount: 0,
     }));
-    await notificationsApi.markAllRead();
+    try {
+      await notificationsApi.markAllRead();
+    } catch {
+      set({ notifications: prev, unreadCount: prevUnread });
+    }
   },
 
   registerToken: async (token, platform) => {

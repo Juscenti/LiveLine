@@ -178,8 +178,9 @@ export async function recordView(req: AuthRequest, res: Response) {
 
 export async function getComments(req: AuthRequest, res: Response) {
   const { postId } = req.params;
+  const db = createSupabaseUserClient(req.accessToken!);
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('post_comments')
     .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
     .eq('post_id', postId)
@@ -187,13 +188,18 @@ export async function getComments(req: AuthRequest, res: Response) {
     .order('created_at', { ascending: true });
 
   if (error) return res.status(500).json({ error: error.message, data: null });
-  return res.json({ data, error: null });
+  if (!data?.length) {
+    const { data: canSee } = await db.from('posts').select('id').eq('id', postId).maybeSingle();
+    if (!canSee) return res.status(404).json({ error: 'Post not found', data: null });
+  }
+  return res.json({ data: data ?? [], error: null });
 }
 
 export async function getPost(req: AuthRequest, res: Response) {
   const { postId } = req.params;
+  const db = createSupabaseUserClient(req.accessToken!);
 
-  const { data: post, error } = await supabaseAdmin
+  const { data: post, error } = await db
     .from('posts')
     .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
     .eq('id', postId)
@@ -202,7 +208,7 @@ export async function getPost(req: AuthRequest, res: Response) {
 
   if (error || !post) return res.status(404).json({ error: 'Post not found', data: null });
 
-  const { data: likeRow } = await supabaseAdmin
+  const { data: likeRow } = await db
     .from('post_likes')
     .select('id')
     .eq('post_id', postId)

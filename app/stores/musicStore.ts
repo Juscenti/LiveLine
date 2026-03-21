@@ -15,7 +15,7 @@ interface MusicState {
   syncNowPlaying: () => Promise<void>;
   startPolling: () => void;
   stopPolling: () => void;
-  connectPlatform: (platform: MusicPlatform, token: string) => Promise<void>;
+  connectPlatform: (platform: MusicPlatform, token: string, oauthState?: string) => Promise<void>;
   disconnectPlatform: (platform: MusicPlatform) => Promise<void>;
   fetchTopTracks: (userId: string) => Promise<void>;
 }
@@ -51,8 +51,11 @@ export const useMusicStore = create<MusicState>((set) => ({
     if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
   },
 
-  connectPlatform: async (platform, token) => {
-    if (platform === 'spotify')     await musicApi.connectSpotify(token);
+  connectPlatform: async (platform, token, oauthState) => {
+    if (platform === 'spotify') {
+      if (!oauthState) throw new Error('Missing OAuth state. Open Connect from the app after requesting the Spotify link.');
+      await musicApi.connectSpotify(token, oauthState);
+    }
     if (platform === 'apple_music') await musicApi.connectAppleMusic(token);
     if (platform === 'soundcloud')  await musicApi.connectSoundCloud(token);
     set((s) => ({
@@ -61,15 +64,23 @@ export const useMusicStore = create<MusicState>((set) => ({
   },
 
   disconnectPlatform: async (platform) => {
-    await musicApi.disconnect(platform);
-    set((s) => ({
-      connectedPlatforms: s.connectedPlatforms.filter((p) => p !== platform),
-      nowPlaying: s.nowPlaying?.source === platform ? null : s.nowPlaying,
-    }));
+    try {
+      await musicApi.disconnect(platform);
+      set((s) => ({
+        connectedPlatforms: s.connectedPlatforms.filter((p) => p !== platform),
+        nowPlaying: s.nowPlaying?.source === platform ? null : s.nowPlaying,
+      }));
+    } catch {
+      throw new Error('Could not disconnect. Try again.');
+    }
   },
 
   fetchTopTracks: async (userId) => {
-    const { data } = await musicApi.getTopTracks(userId);
-    set({ topTracks: data.data });
+    try {
+      const { data } = await musicApi.getTopTracks(userId);
+      set({ topTracks: data.data ?? [] });
+    } catch {
+      set({ topTracks: [] });
+    }
   },
 }));

@@ -93,13 +93,23 @@ export const useMapStore = create<MapState>((set, get) => ({
   refreshNearby: async () => {
     const loc = get().myLocation;
     if (!loc) return;
-    const { data } = await mapApi.getNearbyFriends(loc.latitude, loc.longitude);
-    set({ nearbyFriends: data.data });
+    try {
+      const res = await mapApi.getNearbyFriends(loc.latitude, loc.longitude);
+      const body = res?.data as { data?: MapFriend[] } | undefined;
+      const rows = body?.data;
+      set({ nearbyFriends: Array.isArray(rows) ? rows : [] });
+    } catch {
+      set({ nearbyFriends: [] });
+    }
   },
 
   selectFriend: (userId) => set({ selectedFriendId: userId }),
 
   setVisibility: async (visibility) => {
-    await mapApi.setVisibility(visibility);
+    try {
+      await mapApi.setVisibility(visibility);
+    } catch {
+      throw new Error('Could not update map visibility.');
+    }
   },
 }));

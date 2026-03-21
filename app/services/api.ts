@@ -4,7 +4,7 @@
 import axios from 'axios';
 import { rewriteLocalhostForAndroidEmulator } from '@/utils/devNetwork';
 import { supabase } from './supabase';
-import { getAccessToken } from './accessTokenStore';
+import { getAccessToken, setAccessToken } from './accessTokenStore';
 
 const BASE_URL = rewriteLocalhostForAndroidEmulator(process.env.EXPO_PUBLIC_API_URL ?? '');
 if (!BASE_URL) {
@@ -44,32 +44,29 @@ api.interceptors.request.use(async (config) => {
   if (isAuthFree) return config;
 
   try {
-    // Prefer backend-issued token we stored during login/register.
+    // Prefer the live Supabase session (auto-refreshed). In-memory token alone can be
+    // stale after refresh and caused 401s on posts/delete/friends while the UI still looked logged in.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      setAccessToken(session.access_token);
+      config.headers.Authorization = `Bearer ${session.access_token}`;
+      return config;
+    }
     const token = getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
-    else {
-      // Fallback: supabase session (may fail/hang in some environments).
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        config.headers.Authorization = `Bearer ${session.access_token}`;
-      }
-    }
   } catch {
-    // If getting a session fails (e.g., anon key issues), just send without Authorization.
+    const token = getAccessToken();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
   }
 
   return config;
 });
 
-// Global error handler
+// Do not sign out on every 401 — posts/friends/map can return 401 for reasons other than "bad session",
+// and cold backends / RLS / race conditions were nuking the Supabase session and bricking the app.
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      supabase.auth.signOut();
-    }
-    return Promise.reject(err);
-  }
+  (err) => Promise.reject(err)
 );
 
 // ── Typed request helpers ───────────────────────────────────
@@ -144,7 +141,8 @@ export const mapApi = {
 };
 
 export const musicApi = {
-  connectSpotify: (code: string) => api.post('/music/connect/spotify', { code }),
+  connectSpotify: (code: string, state: string) =>
+    api.post('/music/connect/spotify', { code, state }),
   connectAppleMusic: (token: string) => api.post('/music/connect/apple', { token }),
   connectSoundCloud: (code: string) => api.post('/music/connect/soundcloud', { code }),
   getSpotifyAuthUrl: () => api.get('/music/connect/spotify/auth-url'),

@@ -5,10 +5,11 @@ import { useMusicStore } from '@/stores/musicStore';
 import type { MusicPlatform } from '@/types';
 
 export default function MusicCallbackScreen() {
-  const { provider, code, token } = useLocalSearchParams<{
+  const { provider, code, token, state } = useLocalSearchParams<{
     provider: string;
     code?: string;
     token?: string;
+    state?: string;
   }>();
   const { connectPlatform, startPolling } = useMusicStore();
   const [status, setStatus] = useState<'connecting' | 'done'>('connecting');
@@ -30,7 +31,12 @@ export default function MusicCallbackScreen() {
           throw new Error('Missing OAuth parameter (code/token) in callback URL.');
         }
 
-        await connectPlatform(platform, value);
+        const oauthState = typeof state === 'string' ? state : Array.isArray(state) ? state[0] : undefined;
+        if (platform === 'spotify' && !oauthState) {
+          throw new Error('Missing OAuth state in callback URL.');
+        }
+
+        await connectPlatform(platform, value, oauthState);
         if (platform === 'spotify') startPolling();
         setStatus('done');
         router.replace('/music/connect');
@@ -41,7 +47,7 @@ export default function MusicCallbackScreen() {
     };
 
     void run();
-  }, [provider, code, token, connectPlatform]);
+  }, [provider, code, token, state, connectPlatform]);
 
   return (
     <View style={styles.container}>

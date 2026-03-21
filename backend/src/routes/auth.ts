@@ -28,7 +28,9 @@ export async function register(req: Request, res: Response) {
 
   if (existing) return res.status(409).json({ error: 'Username already taken', data: null });
 
-  // Create Supabase auth user
+  // `email_confirm: true` marks the email confirmed in Auth immediately (good for dev/MVP).
+  // For production, require verification in Supabase (Auth → Providers → Email) and/or
+  // replace this flow with sign-up + email OTP instead of auto-confirming here.
   const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,

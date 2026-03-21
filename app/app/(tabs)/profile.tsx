@@ -1,12 +1,12 @@
 // ============================================================
 // app/(tabs)/profile.tsx — Own profile
 // ============================================================
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Image, Dimensions, ActivityIndicator,
 } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useMusicStore } from '@/stores/musicStore';
 import { postsApi } from '@/services/api';
@@ -19,15 +19,9 @@ const { width } = Dimensions.get('window');
 const THUMB = (width - SPACING.base * 2 - SPACING.xs * 2) / 3;
 
 export default function ProfileScreen() {
-  const { user, logout, refreshUser } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
   const { nowPlaying } = useMusicStore();
   const [posts, setPosts] = useState<Post[]>([]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!user?.id) void refreshUser();
-    }, [user?.id, refreshUser]),
-  );
 
   useEffect(() => {
     if (!user?.id) return;

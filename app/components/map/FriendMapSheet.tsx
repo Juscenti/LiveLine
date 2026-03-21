@@ -63,12 +63,12 @@ export default function FriendMapSheet({ friend, onClose }: Props) {
   const openMessage = async () => {
     setMsgLoading(true);
     try {
-      const convId = await getOrCreateDirectConversation(friend.user_id);
-      if (convId) {
+      const r = await getOrCreateDirectConversation(friend.user_id);
+      if (r.ok) {
         onClose();
-        router.push(`/messages/${convId}`);
+        router.push(`/messages/${r.conversationId}`);
       } else {
-        Alert.alert('Could not open chat', 'You must be friends to message.');
+        Alert.alert('Could not open chat', r.message);
       }
     } finally {
       setMsgLoading(false);

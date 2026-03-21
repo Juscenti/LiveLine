@@ -3,6 +3,7 @@
 backend/.env
 app/.env
 dist/
+backend/dist/
 node_modules/
 .cursor/
 *.log

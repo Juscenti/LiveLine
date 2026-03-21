@@ -2,19 +2,30 @@
 // stores/authStore.ts — Auth state (Zustand)
 // ============================================================
 import { create } from 'zustand';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/services/supabase';
 import { authApi, wakeBackend } from '@/services/api';
 import { clearAccessToken, setAccessToken } from '@/services/accessTokenStore';
 import type { User } from '@/types';
 
-/** Cold Render / flaky Wi‑Fi: first /auth/me often fails — retry before giving up. */
-async function fetchMeWithRetry(maxAttempts = 5): Promise<User | null> {
+/** Only register Supabase listener once (initialize must not stack listeners on re-entry). */
+let supabaseAuthListenerRegistered = false;
+
+/** Cold Render / flaky Wi‑Fi — bounded retries; does not stack with UI-level refresh calls. */
+async function fetchMeWithRetry(maxAttempts = 2): Promise<User | null> {
   let last: User | null = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const { data } = await authApi.me().catch(() => ({ data: null }));
-    last = (data?.data as User | null) ?? null;
-    if (last) return last;
-    await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+    try {
+      const res = await authApi.me();
+      const body = res?.data as { data?: User } | undefined;
+      last = body?.data ?? null;
+      if (last) return last;
+    } catch {
+      last = null;
+    }
+    if (attempt < maxAttempts - 1) {
+      await new Promise((r) => setTimeout(r, 280 * (attempt + 1)));
+    }
   }
   return last;
 }
@@ -34,7 +45,7 @@ const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): 
 
 interface AuthState {
   user: User | null;
-  session: any | null;
+  session: Session | null;
   isLoading: boolean;
   isInitialized: boolean;
 
@@ -53,37 +64,48 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isInitialized: false,
 
   initialize: async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        const user = await fetchMeWithRetry();
-        set({ session, user });
-        if (!user) {
-          void wakeBackend().finally(() => {
-            void get().refreshUser();
-          });
+    if (!supabaseAuthListenerRegistered) {
+      supabaseAuthListenerRegistered = true;
+      supabase.auth.onAuthStateChange(async (event, session) => {
+        set({ session });
+
+        if (event === 'SIGNED_OUT') {
+          clearAccessToken();
+          set({ user: null, session: null });
+          return;
         }
-      } else {
-        set({ session: null, user: null });
-      }
-      set({ isInitialized: true });
-    } catch {
-      set({ session: null, user: null, isInitialized: true });
+
+        if (session?.access_token) setAccessToken(session.access_token);
+
+        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+          const res = await authApi.me().catch(() => null);
+          const prev = get().user;
+          const u = (res?.data as { data?: User } | undefined)?.data;
+          set({ user: u ?? prev });
+        }
+      });
     }
 
-    // Listen to Supabase auth changes
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      set({ session });
-      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
-        const { data } = await authApi.me().catch(() => ({ data: null }));
-        // Never wipe profile on transient /auth/me failure (would blank Profile tab after login).
-        const prev = get().user;
-        set({ user: data?.data ?? prev });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) setAccessToken(session.access_token);
+      if (session) {
+        set({ session, user: get().user });
+        set({ isInitialized: true });
+
+        void (async () => {
+          await wakeBackend().catch(() => {});
+          const user = await fetchMeWithRetry(2);
+          set({ user: user ?? get().user });
+        })();
+      } else {
+        clearAccessToken();
+        set({ session: null, user: null, isInitialized: true });
       }
-      if (event === 'SIGNED_OUT') {
-        set({ user: null, session: null });
-      }
-    });
+    } catch {
+      clearAccessToken();
+      set({ session: null, user: null, isInitialized: true });
+    }
   },
 
   login: async (email: string, password: string) => {
@@ -100,22 +122,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         throw new Error(resp?.data?.error ?? 'Login failed (missing session)');
       }
 
-      // Immediately store the backend-issued token so our axios interceptor can
-      // attach Authorization headers even if Supabase's `setSession` is slow.
       setAccessToken(session.access_token);
 
-      // Fire-and-forget: Supabase `setSession` can hang in some environments.
-      void withTimeout(
+      await withTimeout(
         supabase.auth.setSession({
           access_token: session.access_token,
           refresh_token: session.refresh_token,
         }),
-        12000,
+        20000,
         'Supabase session',
-      ).catch(() => {});
+      );
 
-      // Use the user returned by the backend to avoid an extra `/auth/me` round-trip
-      // (which depends on Authorization + anon-key behavior).
       const user = resp?.data?.data?.user ?? resp?.data?.user ?? null;
       set({ user: user ?? null, session });
     } finally {
@@ -139,15 +156,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       setAccessToken(session.access_token);
 
-      // Fire-and-forget Supabase session setup to prevent UI hangs.
-      void withTimeout(
+      await withTimeout(
         supabase.auth.setSession({
           access_token: session.access_token,
           refresh_token: session.refresh_token,
         }),
-        12000,
+        20000,
         'Supabase session',
-      ).catch(() => {});
+      );
 
       const user = resp?.data?.data?.user ?? resp?.data?.user ?? null;
       set({ user: user ?? null, session });
@@ -169,7 +185,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setUser: (user) => set({ user }),
 
   refreshUser: async () => {
-    const { data } = await authApi.me().catch(() => ({ data: null }));
-    if (data?.data) set({ user: data.data });
+    const res = await authApi.me().catch(() => null);
+    const u = (res?.data as { data?: User } | undefined)?.data;
+    if (u) set({ user: u });
   },
 }));

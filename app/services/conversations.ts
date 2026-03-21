@@ -149,16 +149,28 @@ export async function loadConversationPeer(conversationId: string): Promise<Conv
   }
 }
 
+export type GetOrCreateConversationResult =
+  | { ok: true; conversationId: string }
+  | { ok: false; message: string };
+
 /** Opens or creates a DM with a friend (RPC enforces friendship). */
-export async function getOrCreateDirectConversation(otherUserId: string): Promise<string | null> {
+export async function getOrCreateDirectConversation(
+  otherUserId: string,
+): Promise<GetOrCreateConversationResult> {
   try {
     const { data, error } = await supabase.rpc('get_or_create_direct_conversation', {
       p_other_user_id: otherUserId,
     });
-    if (error || data == null) return null;
-    return data as string;
-  } catch {
-    return null;
+    if (error) {
+      return { ok: false, message: error.message ?? 'Could not open chat' };
+    }
+    if (data == null) return { ok: false, message: 'Could not open chat' };
+    return { ok: true, conversationId: data as string };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : 'Could not open chat',
+    };
   }
 }
 

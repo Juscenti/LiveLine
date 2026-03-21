@@ -21,6 +21,8 @@ export default function MapScreen() {
   useEffect(() => {
     startTracking();
     return () => stopTracking();
+    // Zustand store actions are stable references.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/unmount only
   }, []);
 
   const region = useMemo(() => {
@@ -85,8 +87,7 @@ export default function MapScreen() {
               key={friend.user_id}
               coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
               anchor={{ x: 0.5, y: 1 }}
-              // Custom views + tracksViewChanges={false} can block marker taps on some devices.
-              tracksViewChanges
+              tracksViewChanges={false}
               zIndex={friend.user_id === selectedFriendId ? 1000 : 1}
               onPress={() => {
                 selectFriend(friend.user_id);

@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 import { supabaseAdmin } from '../config/supabase';
 import { musicService } from '../services/musicService';
+import { issueSpotifyOAuthState } from '../services/oauthStateStore';
 
 const router = Router();
 
@@ -19,9 +20,7 @@ router.get('/connect/spotify/auth-url', requireAuth, async (req: AuthRequest, re
       });
     }
 
-    // We don't store state server-side in this MVP; users can still paste the `code`
-    // from the redirect into the app to complete the connection.
-    const state = req.userId!;
+    const state = issueSpotifyOAuthState(req.userId!);
     // Needed for "currently playing" sync.
     const scope = ['user-read-email', 'user-read-private', 'user-read-playback-state', 'user-top-read'].join(' ');
 
@@ -36,7 +35,7 @@ router.get('/connect/spotify/auth-url', requireAuth, async (req: AuthRequest, re
 
     const url = `https://accounts.spotify.com/authorize?${params.toString()}`;
 
-    return res.json({ data: { url }, error: null });
+    return res.json({ data: { url, state }, error: null });
   } catch (e: any) {
     return res.status(500).json({ error: e.message ?? 'Unknown error', data: null });
   }
@@ -61,7 +60,11 @@ router.get('/connect/apple/auth-url', requireAuth, async (req: AuthRequest, res:
 
 router.post('/connect/spotify', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    await musicService.connectSpotify(req.userId!, req.body.code);
+    const { code, state } = req.body as { code?: string; state?: string };
+    if (!code || !state) {
+      return res.status(400).json({ error: 'code and state are required', data: null });
+    }
+    await musicService.connectSpotify(req.userId!, code, state);
     return res.json({ data: { connected: true }, error: null });
   } catch (e: any) {
     return res.status(500).json({ error: e.message, data: null });

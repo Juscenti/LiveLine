@@ -41,8 +41,9 @@ export default function PublicProfileScreen() {
     if (!id) return;
     Promise.all([usersApi.getProfile(id), postsApi.getUserPosts(id)])
       .then(([profileRes, postsRes]) => {
-        setProfile(profileRes.data.data);
-        setPosts(postsRes.data.data);
+        setProfile(profileRes.data?.data ?? null);
+        const raw = postsRes.data?.data;
+        setPosts(Array.isArray(raw) ? raw : []);
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -69,11 +70,9 @@ export default function PublicProfileScreen() {
     if (!id) return;
     setChatLoading(true);
     try {
-      const convId = await getOrCreateDirectConversation(id);
-      if (convId) router.push(`/messages/${convId}`);
-      else {
-        Alert.alert('Could not open chat', 'You must be friends to message.');
-      }
+      const r = await getOrCreateDirectConversation(id);
+      if (r.ok) router.push(`/messages/${r.conversationId}`);
+      else Alert.alert('Could not open chat', r.message);
     } finally {
       setChatLoading(false);
     }
