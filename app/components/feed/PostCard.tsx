@@ -5,6 +5,9 @@ import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, FEED } from '@/constants';
+import { useAuthStore } from '@/stores/authStore';
+import { useFeedStore } from '@/stores/feedStore';
+import { formatApiError } from '@/utils/apiErrors';
 import { deterministicAspectForPostId } from '@/utils/feedMasonry';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -27,9 +30,17 @@ interface Props {
   onPress: () => void;
 }
 
+/** Cap tile height so ultra-tall posts don’t dominate the feed; image uses `contain` inside. */
+const MAX_TILE_HEIGHT_FACTOR = 2.85;
+
 export default function PostCard({ post, width, onPress }: Props) {
+  const user = useAuthStore((s) => s.user);
+  const deletePost = useFeedStore((s) => s.deletePost);
+  const isOwner = user?.id === post.user_id;
+
   const aspect = getPostMediaAspectRatio(post);
-  const imageHeight = width / aspect;
+  const naturalH = width / aspect;
+  const imageHeight = Math.min(naturalH, width * MAX_TILE_HEIGHT_FACTOR);
 
   const uri =
     post.media_type === 'video'
@@ -38,7 +49,26 @@ export default function PostCard({ post, width, onPress }: Props) {
   const showImage = uri.length > 0;
 
   const handleMenu = () => {
-    Alert.alert('Post', 'More options coming soon.');
+    if (!isOwner) {
+      Alert.alert('Post', 'More options coming soon.');
+      return;
+    }
+    Alert.alert('Delete this post?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await deletePost(post.id);
+            } catch (e) {
+              Alert.alert("Couldn't delete post", formatApiError(e));
+            }
+          })();
+        },
+      },
+    ]);
   };
 
   return (
@@ -49,7 +79,7 @@ export default function PostCard({ post, width, onPress }: Props) {
             <Image
               source={{ uri }}
               style={[styles.image, { borderRadius: FEED.tileRadius }]}
-              contentFit="cover"
+              contentFit="contain"
               transition={200}
               cachePolicy="memory-disk"
             />
@@ -82,9 +112,13 @@ export default function PostCard({ post, width, onPress }: Props) {
         <TouchableOpacity
           onPress={handleMenu}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityLabel="Post options"
+          accessibilityLabel={isOwner ? 'Delete post' : 'Post options'}
         >
-          <Ionicons name="ellipsis-horizontal" size={20} color={COLORS.textPrimary} />
+          <Ionicons
+            name={isOwner ? 'trash-outline' : 'ellipsis-horizontal'}
+            size={20}
+            color={isOwner ? COLORS.error : COLORS.textPrimary}
+          />
         </TouchableOpacity>
       </View>
     </View>

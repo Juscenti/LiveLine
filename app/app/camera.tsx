@@ -1,19 +1,19 @@
 // ============================================================
 // app/camera.tsx — Capture modal (camera + gallery + preview)
 // ============================================================
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Alert,
-  Dimensions,
   TextInput,
   ActivityIndicator,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -27,8 +27,6 @@ import { useFeedStore } from '@/stores/feedStore';
 import { formatApiError } from '@/utils/apiErrors';
 import { COLORS, SPACING, FONTS, RADIUS, POST } from '@/constants';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-
 type Preview = {
   uri: string;
   type: 'image' | 'video';
@@ -37,6 +35,7 @@ type Preview = {
 };
 
 export default function CameraScreen() {
+  const { width: winW } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
@@ -46,6 +45,27 @@ export default function CameraScreen() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [uploading, setUploading] = useState(false);
   const { prependPost } = useFeedStore();
+
+  const previewStageStyle = useMemo(() => {
+    const horizontalPad = SPACING.base * 2;
+    const stageW = Math.min(winW - horizontalPad, 720);
+    const ar =
+      preview &&
+      preview.width != null &&
+      preview.height != null &&
+      preview.width > 0 &&
+      preview.height > 0
+        ? Math.min(Math.max(preview.width / preview.height, 0.22), 4)
+        : 3 / 4;
+    return {
+      width: stageW,
+      alignSelf: 'center' as const,
+      aspectRatio: ar,
+      borderRadius: RADIUS.lg,
+      overflow: 'hidden' as const,
+      backgroundColor: '#111',
+    };
+  }, [preview, winW]);
 
   useEffect(() => {
     void requestPermission();
@@ -177,7 +197,7 @@ export default function CameraScreen() {
             <View style={{ width: 72 }} />
           </View>
 
-          <View style={styles.previewStage}>
+          <View style={previewStageStyle}>
             {preview.type === 'image' ? (
               <Image
                 source={{ uri: preview.uri }}
@@ -329,14 +349,6 @@ const styles = StyleSheet.create({
   },
   discardBtn: { color: COLORS.error, fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semibold },
   previewTitle: { color: COLORS.textPrimary, fontSize: FONTS.sizes.md, fontWeight: FONTS.weights.semibold },
-  previewStage: {
-    width: SCREEN_W - SPACING.base * 2,
-    alignSelf: 'center',
-    aspectRatio: 3 / 4,
-    borderRadius: RADIUS.lg,
-    overflow: 'hidden',
-    backgroundColor: '#111',
-  },
   previewMedia: { width: '100%', height: '100%' },
   previewHint: {
     color: COLORS.textTertiary,

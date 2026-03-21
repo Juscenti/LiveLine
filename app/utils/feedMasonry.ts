@@ -11,6 +11,6 @@ export function deterministicAspectForPostId(id: string): number {
     n = Math.imul(n, 16777619);
   }
   const t = (n >>> 0) / 2 ** 32;
-  // ~0.58 (tall portrait) … ~1.15 (slightly wide)
-  return 0.58 + t * 0.57;
+  // ~0.35 (portrait) … ~1.85 (landscape) — avoids all tiles looking “square” when dims missing
+  return 0.35 + t * 1.5;
 }

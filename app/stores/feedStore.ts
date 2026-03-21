@@ -41,6 +41,8 @@ interface FeedState {
   likePost: (postId: string) => Promise<void>;
   unlikePost: (postId: string) => Promise<void>;
   removePost: (postId: string) => void;
+  /** Soft-delete on server, then drop from local feed */
+  deletePost: (postId: string) => Promise<void>;
   prependPost: (post: FeedPost) => void;
 }
 
@@ -146,6 +148,11 @@ export const useFeedStore = create<FeedState>((set, get) => ({
 
   removePost: (postId) =>
     set((s) => ({ posts: s.posts.filter((p) => p.id !== postId) })),
+
+  deletePost: async (postId) => {
+    await postsApi.delete(postId);
+    set((s) => ({ posts: s.posts.filter((p) => p.id !== postId) }));
+  },
 
   prependPost: (post) =>
     set((s) => ({

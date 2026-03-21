@@ -5,14 +5,19 @@ import { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, KeyboardAvoidingView, Platform,
-  Image, ActivityIndicator,
+  ActivityIndicator, Alert,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import { Video } from 'expo-av';
+import { Image } from 'expo-image';
+import { Video, ResizeMode } from 'expo-av';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { postsApi } from '@/services/api';
-import { useFeedStore } from '@/stores/feedStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useFeedStore } from '@/stores/feedStore';
+import { formatApiError } from '@/utils/apiErrors';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
+import { getPostMediaAspectRatio } from '@/components/feed/PostCard';
+import { useResponsive } from '@/utils/responsive';
 import MusicBadge from '@/components/music/MusicBadge';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -22,13 +27,16 @@ dayjs.extend(relativeTime);
 
 export default function PostDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { posts, likePost, unlikePost } = useFeedStore();
-  const { user } = useAuthStore();
+  const insets = useSafeAreaInsets();
+  const r = useResponsive();
+  const user = useAuthStore((s) => s.user);
+  const { posts, likePost, unlikePost, deletePost } = useFeedStore();
   const [post, setPost] = useState<FeedPost | null>(posts.find((p) => p.id === id) ?? null);
   const [comments, setComments] = useState<any[]>([]);
   const [commentText, setCommentText] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -79,7 +87,36 @@ export default function PostDetailScreen() {
     post.user_has_liked ? unlikePost(post.id) : likePost(post.id);
   };
 
+  const isOwner = user?.id === post.user_id;
+
+  const handleDeletePost = async () => {
+    if (!id) return;
+    setDeleting(true);
+    try {
+      await deletePost(id);
+      router.back();
+    } catch (e) {
+      Alert.alert("Couldn't delete post", formatApiError(e));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const confirmDeletePost = () => {
+    Alert.alert('Delete this post?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          void handleDeletePost();
+        },
+      },
+    ]);
+  };
+
   const imageUri = post.thumbnail_url ?? post.media_url;
+  const mediaAspect = getPostMediaAspectRatio(post);
 
   return (
     <KeyboardAvoidingView
@@ -87,21 +124,55 @@ export default function PostDetailScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backBtn}>‹ Back</Text>
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: insets.top + 8,
+            paddingHorizontal: r.padH,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          },
+        ]}
+      >
+        <TouchableOpacity onPress={() => router.back()} disabled={deleting}>
+          <Text style={[styles.backBtn, { fontSize: FONTS.sizes.base * r.scale }]}>‹ Back</Text>
         </TouchableOpacity>
+        {isOwner ? (
+          <TouchableOpacity onPress={confirmDeletePost} disabled={deleting} activeOpacity={0.7}>
+            <Text
+              style={[
+                styles.deleteHeader,
+                { fontSize: FONTS.sizes.base * r.scale, opacity: deleting ? 0.45 : 1 },
+              ]}
+            >
+              Delete
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerRightSpacer} />
+        )}
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Media placeholder */}
-        <View style={styles.media}>
+        {/* Media — container matches stored aspect (no forced square crop) */}
+        <View
+          style={[
+            styles.media,
+            {
+              aspectRatio: mediaAspect,
+              maxWidth: r.maxFeedWidth,
+              alignSelf: 'center',
+            },
+          ]}
+        >
           {post.media_type === 'image' ? (
             imageUri ? (
               <Image
                 source={{ uri: imageUri }}
                 style={styles.mediaImage}
-                resizeMode="contain"
+                contentFit="contain"
               />
             ) : (
               <View style={styles.mediaPlaceholder}>
@@ -114,7 +185,8 @@ export default function PostDetailScreen() {
                 source={{ uri: post.media_url }}
                 style={styles.mediaImage}
                 shouldPlay={false}
-                useNativeControls={true}
+                useNativeControls
+                resizeMode={ResizeMode.CONTAIN}
               />
             ) : (
               <View style={styles.mediaPlaceholder}>
@@ -126,7 +198,7 @@ export default function PostDetailScreen() {
 
         {/* Author row */}
         <TouchableOpacity
-          style={styles.authorRow}
+          style={[styles.authorRow, { paddingHorizontal: r.padH }]}
           onPress={() => router.push(`/profile/${post.user_id}`)}
         >
           <View style={styles.authorAvatar}>
@@ -141,13 +213,20 @@ export default function PostDetailScreen() {
         </TouchableOpacity>
 
         {/* Caption */}
-        {post.caption && <Text style={styles.caption}>{post.caption}</Text>}
+        {post.caption && (
+          <Text style={[styles.caption, { paddingHorizontal: r.padH }]}>{post.caption}</Text>
+        )}
 
         {/* Music */}
-        {post.music && <MusicBadge track={post.music} style={styles.music} />}
+        {post.music && (
+          <MusicBadge
+            track={post.music}
+            style={{ marginTop: SPACING.md, marginHorizontal: r.padH }}
+          />
+        )}
 
         {/* Actions */}
-        <View style={styles.actions}>
+        <View style={[styles.actions, { paddingHorizontal: r.padH }]}>
           <TouchableOpacity style={styles.actionBtn} onPress={toggleLike}>
             <Text style={[styles.actionIcon, post.user_has_liked && styles.actionIconLiked]}>
               {post.user_has_liked ? '❤️' : '🤍'}
@@ -165,7 +244,7 @@ export default function PostDetailScreen() {
         </View>
 
         {/* Comments */}
-        <View style={styles.commentsSection}>
+        <View style={[styles.commentsSection, { paddingHorizontal: r.padH }]}>
           <Text style={styles.commentsTitle}>Comments</Text>
           {loadingComments && <ActivityIndicator color={COLORS.accent} style={{ marginTop: SPACING.md }} />}
           {comments.map((c) => (
@@ -179,7 +258,7 @@ export default function PostDetailScreen() {
       </ScrollView>
 
       {/* Comment input */}
-      <View style={styles.inputRow}>
+      <View style={[styles.inputRow, { paddingHorizontal: r.padH, paddingBottom: Math.max(insets.bottom, SPACING.sm) }]}>
         <TextInput
           style={styles.commentInput}
           placeholder="Add a comment..."
@@ -203,12 +282,15 @@ export default function PostDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.bg },
-  header: { paddingTop: 56, paddingHorizontal: SPACING.base, paddingBottom: SPACING.sm },
-  backBtn: { color: COLORS.accent, fontSize: FONTS.sizes.base },
+  header: { paddingBottom: SPACING.sm },
+  headerRightSpacer: { width: 56 },
+  backBtn: { color: COLORS.accent, fontWeight: FONTS.weights.semibold },
+  deleteHeader: { color: COLORS.error, fontWeight: FONTS.weights.semibold },
   media: {
-    width: '100%', aspectRatio: 1,
+    width: '100%',
     backgroundColor: COLORS.bgCard,
-    justifyContent: 'center', alignItems: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   mediaImage: { width: '100%', height: '100%' },
   mediaPlaceholder: {
@@ -219,8 +301,10 @@ const styles = StyleSheet.create({
   },
   mediaPlaceholderText: { fontSize: 48, color: COLORS.textTertiary },
   authorRow: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
-    padding: SPACING.base,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingVertical: SPACING.base,
   },
   authorAvatar: {
     width: 38, height: 38, borderRadius: 19,
@@ -230,18 +314,19 @@ const styles = StyleSheet.create({
   authorInitial: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold },
   authorName: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.sm },
   authorTime: { color: COLORS.textTertiary, fontSize: FONTS.sizes.xs },
-  caption: { paddingHorizontal: SPACING.base, color: COLORS.textPrimary, fontSize: FONTS.sizes.sm, lineHeight: 20 },
-  music: { marginHorizontal: SPACING.base, marginTop: SPACING.md },
+  caption: { color: COLORS.textPrimary, fontSize: FONTS.sizes.sm, lineHeight: 20 },
   actions: {
-    flexDirection: 'row', gap: SPACING.xl,
-    paddingHorizontal: SPACING.base, paddingVertical: SPACING.md,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+    flexDirection: 'row',
+    gap: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
   actionIcon: { fontSize: 20 },
   actionIconLiked: {},
   actionCount: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm },
-  commentsSection: { padding: SPACING.base },
+  commentsSection: { paddingVertical: SPACING.base },
   commentsTitle: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, marginBottom: SPACING.md },
   comment: {
     paddingVertical: SPACING.sm,
@@ -251,8 +336,12 @@ const styles = StyleSheet.create({
   commentBody: { color: COLORS.textPrimary, fontSize: FONTS.sizes.sm, marginTop: 2, lineHeight: 18 },
   commentTime: { color: COLORS.textTertiary, fontSize: FONTS.sizes.xs, marginTop: 2 },
   inputRow: {
-    flexDirection: 'row', gap: SPACING.sm, alignItems: 'center',
-    padding: SPACING.base, borderTopWidth: 1, borderTopColor: COLORS.border,
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    alignItems: 'center',
+    paddingTop: SPACING.base,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
   commentInput: {
     flex: 1, backgroundColor: COLORS.bgCard,
