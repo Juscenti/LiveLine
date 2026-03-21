@@ -1,6 +1,7 @@
 // ============================================================
 // components/feed/PostCard.tsx — Masonry tile (Pinterest-style)
 // ============================================================
+import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,21 +9,15 @@ import { COLORS, FONTS, FEED } from '@/constants';
 import { useAuthStore } from '@/stores/authStore';
 import { useFeedStore } from '@/stores/feedStore';
 import { formatApiError } from '@/utils/apiErrors';
-import { deterministicAspectForPostId } from '@/utils/feedMasonry';
+import { getPostMediaAspectRatio, normalizeAspectFromPixels } from '@/utils/feedMasonry';
+import { measureImageAspectFromUri } from '@/utils/imageAspect';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import type { FeedPost } from '@/types';
 
 dayjs.extend(relativeTime);
 
-export function getPostMediaAspectRatio(
-  post: Pick<FeedPost, 'id' | 'media_width' | 'media_height'>,
-): number {
-  const w = post.media_width;
-  const h = post.media_height;
-  if (w != null && h != null && w > 0 && h > 0) return w / h;
-  return deterministicAspectForPostId(post.id);
-}
+export { getPostMediaAspectRatio } from '@/utils/feedMasonry';
 
 interface Props {
   post: FeedPost;
@@ -30,23 +25,52 @@ interface Props {
   onPress: () => void;
 }
 
-/** Cap tile height so ultra-tall posts don’t dominate the feed; image uses `contain` inside. */
-const MAX_TILE_HEIGHT_FACTOR = 2.85;
+/**
+ * Masonry tile height from media aspect (Pinterest-style stagger).
+ * `cover` fills each tile edge-to-edge.
+ * - Max height: very tall portraits don’t swallow the feed.
+ * - Min height: ultra-wide (w/h ≫ 1) used to make height = width/aspect tiny → “pill” strips; floor fixes that.
+ */
+const MAX_TILE_HEIGHT_FACTOR = 6;
+const MIN_TILE_HEIGHT_FACTOR = 0.52;
 
 export default function PostCard({ post, width, onPress }: Props) {
   const user = useAuthStore((s) => s.user);
   const deletePost = useFeedStore((s) => s.deletePost);
   const isOwner = user?.id === post.user_id;
 
-  const aspect = getPostMediaAspectRatio(post);
-  const naturalH = width / aspect;
-  const imageHeight = Math.min(naturalH, width * MAX_TILE_HEIGHT_FACTOR);
-
   const uri =
     post.media_type === 'video'
       ? (post.thumbnail_url || '').trim()
-      : (post.thumbnail_url || post.media_url || '').trim();
+      : (post.media_url || post.thumbnail_url || '').trim();
   const showImage = uri.length > 0;
+
+  /**
+   * Prefer decoded pixels (expo-image onLoad). Fallback: RN Image.getSize — onLoad can be 0×0 on some devices.
+   */
+  const [decodedAspect, setDecodedAspect] = useState<number | null>(null);
+  useEffect(() => {
+    setDecodedAspect(null);
+  }, [post.id, uri]);
+
+  useEffect(() => {
+    if (!uri || !showImage) return;
+    let cancelled = false;
+    void measureImageAspectFromUri(uri).then((r) => {
+      if (cancelled || r == null) return;
+      setDecodedAspect((prev) => prev ?? r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [uri, showImage, post.id]);
+
+  const aspect = decodedAspect ?? getPostMediaAspectRatio(post);
+  const naturalH = width / aspect;
+  const imageHeight = Math.min(
+    Math.max(naturalH, width * MIN_TILE_HEIGHT_FACTOR),
+    width * MAX_TILE_HEIGHT_FACTOR,
+  );
 
   const handleMenu = () => {
     if (!isOwner) {
@@ -77,11 +101,18 @@ export default function PostCard({ post, width, onPress }: Props) {
         <View style={[styles.media, { height: imageHeight, width, borderRadius: FEED.tileRadius }]}>
           {showImage ? (
             <Image
-              source={{ uri }}
+              source={{ uri, cacheKey: post.id }}
               style={[styles.image, { borderRadius: FEED.tileRadius }]}
-              contentFit="contain"
+              contentFit="cover"
               transition={200}
               cachePolicy="memory-disk"
+              onLoad={(e) => {
+                const pw = e.source.width;
+                const ph = e.source.height;
+                if (pw > 0 && ph > 0) {
+                  setDecodedAspect(normalizeAspectFromPixels(pw, ph));
+                }
+              }}
             />
           ) : (
             <View style={[styles.videoPlaceholder, { borderRadius: FEED.tileRadius }]}>
@@ -111,14 +142,10 @@ export default function PostCard({ post, width, onPress }: Props) {
         </TouchableOpacity>
         <TouchableOpacity
           onPress={handleMenu}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityLabel={isOwner ? 'Delete post' : 'Post options'}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityLabel={isOwner ? 'Post options' : 'Post options'}
         >
-          <Ionicons
-            name={isOwner ? 'trash-outline' : 'ellipsis-horizontal'}
-            size={20}
-            color={isOwner ? COLORS.error : COLORS.textPrimary}
-          />
+          <Ionicons name="ellipsis-horizontal" size={18} color={COLORS.textTertiary} />
         </TouchableOpacity>
       </View>
     </View>

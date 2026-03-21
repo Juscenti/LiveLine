@@ -1,7 +1,7 @@
 // ============================================================
 // app/post/[id].tsx — Post detail / comments modal
 // ============================================================
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, KeyboardAvoidingView, Platform,
@@ -9,14 +9,16 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { postsApi } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
-import { useFeedStore } from '@/stores/feedStore';
+import { useFeedStore, normalizeFeedPost } from '@/stores/feedStore';
 import { formatApiError } from '@/utils/apiErrors';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
-import { getPostMediaAspectRatio } from '@/components/feed/PostCard';
+import { getPostMediaAspectRatio, normalizeAspectFromPixels } from '@/utils/feedMasonry';
+import { measureImageAspectFromUri } from '@/utils/imageAspect';
 import { useResponsive } from '@/utils/responsive';
 import MusicBadge from '@/components/music/MusicBadge';
 import dayjs from 'dayjs';
@@ -37,6 +39,29 @@ export default function PostDetailScreen() {
   const [loadingComments, setLoadingComments] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  /** Pixel aspect from loaded bitmap (fixes square thumbs vs wide originals, bad DB dims) */
+  const [imageNaturalAspect, setImageNaturalAspect] = useState<number | null>(null);
+
+  const detailImageUri = useMemo(() => {
+    if (!post || post.media_type !== 'image') return '';
+    return (post.media_url || post.thumbnail_url || '').trim();
+  }, [post]);
+
+  useEffect(() => {
+    setImageNaturalAspect(null);
+  }, [post?.id, detailImageUri]);
+
+  useEffect(() => {
+    if (!detailImageUri || post?.media_type !== 'image') return;
+    let cancelled = false;
+    void measureImageAspectFromUri(detailImageUri).then((r) => {
+      if (cancelled || r == null) return;
+      setImageNaturalAspect((prev) => prev ?? r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [detailImageUri, post?.media_type, post?.id]);
 
   useEffect(() => {
     if (!id) return;
@@ -48,9 +73,8 @@ export default function PostDetailScreen() {
     if (post) return; // already loaded via deep-link fetch
 
     postsApi.getPost(id).then(({ data }) => {
-      // Expected shape: { data: { ...post } }
-      const nextPost = (data?.data ?? data) as FeedPost;
-      setPost(nextPost);
+      const raw = (data?.data ?? data) as Record<string, unknown>;
+      setPost(normalizeFeedPost(raw));
     }).catch(() => {});
   }, [id, posts, post]);
 
@@ -115,8 +139,7 @@ export default function PostDetailScreen() {
     ]);
   };
 
-  const imageUri = post.thumbnail_url ?? post.media_url;
-  const mediaAspect = getPostMediaAspectRatio(post);
+  const mediaAspect = imageNaturalAspect ?? getPostMediaAspectRatio(post);
 
   return (
     <KeyboardAvoidingView
@@ -140,15 +163,20 @@ export default function PostDetailScreen() {
           <Text style={[styles.backBtn, { fontSize: FONTS.sizes.base * r.scale }]}>‹ Back</Text>
         </TouchableOpacity>
         {isOwner ? (
-          <TouchableOpacity onPress={confirmDeletePost} disabled={deleting} activeOpacity={0.7}>
-            <Text
-              style={[
-                styles.deleteHeader,
-                { fontSize: FONTS.sizes.base * r.scale, opacity: deleting ? 0.45 : 1 },
-              ]}
-            >
-              Delete
-            </Text>
+          <TouchableOpacity
+            onPress={confirmDeletePost}
+            disabled={deleting}
+            activeOpacity={0.65}
+            style={styles.deleteIconHit}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Delete post"
+          >
+            <Ionicons
+              name="trash-outline"
+              size={Math.round(22 * r.scale)}
+              color={COLORS.textTertiary}
+              style={{ opacity: deleting ? 0.4 : 0.85 }}
+            />
           </TouchableOpacity>
         ) : (
           <View style={styles.headerRightSpacer} />
@@ -156,7 +184,7 @@ export default function PostDetailScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Media — container matches stored aspect (no forced square crop) */}
+        {/* Media — aspect from DB / decoded pixels; cover fills frame (no inner letterboxing) */}
         <View
           style={[
             styles.media,
@@ -168,11 +196,16 @@ export default function PostDetailScreen() {
           ]}
         >
           {post.media_type === 'image' ? (
-            imageUri ? (
+            detailImageUri ? (
               <Image
-                source={{ uri: imageUri }}
+                source={{ uri: detailImageUri, cacheKey: post.id }}
                 style={styles.mediaImage}
-                contentFit="contain"
+                contentFit="cover"
+                onLoad={(e) => {
+                  const w = e.source.width;
+                  const h = e.source.height;
+                  if (w > 0 && h > 0) setImageNaturalAspect(normalizeAspectFromPixels(w, h));
+                }}
               />
             ) : (
               <View style={styles.mediaPlaceholder}>
@@ -186,7 +219,7 @@ export default function PostDetailScreen() {
                 style={styles.mediaImage}
                 shouldPlay={false}
                 useNativeControls
-                resizeMode={ResizeMode.CONTAIN}
+                resizeMode={ResizeMode.COVER}
               />
             ) : (
               <View style={styles.mediaPlaceholder}>
@@ -285,7 +318,7 @@ const styles = StyleSheet.create({
   header: { paddingBottom: SPACING.sm },
   headerRightSpacer: { width: 56 },
   backBtn: { color: COLORS.accent, fontWeight: FONTS.weights.semibold },
-  deleteHeader: { color: COLORS.error, fontWeight: FONTS.weights.semibold },
+  deleteIconHit: { justifyContent: 'center', alignItems: 'center' },
   media: {
     width: '100%',
     backgroundColor: COLORS.bgCard,

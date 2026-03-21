@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
+  Image as RNImage,
 } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -55,7 +56,7 @@ export default function CameraScreen() {
       preview.height != null &&
       preview.width > 0 &&
       preview.height > 0
-        ? Math.min(Math.max(preview.width / preview.height, 0.22), 4)
+        ? Math.min(Math.max(preview.width / preview.height, 0.2), 6)
         : 3 / 4;
     return {
       width: stageW,
@@ -70,6 +71,26 @@ export default function CameraScreen() {
   useEffect(() => {
     void requestPermission();
   }, [requestPermission]);
+
+  /** Gallery picks sometimes omit width/height — measure file so preview frame matches the photo */
+  useEffect(() => {
+    if (!preview || preview.type !== 'image') return;
+    if (preview.width != null && preview.height != null && preview.width > 0 && preview.height > 0) {
+      return;
+    }
+    let cancelled = false;
+    RNImage.getSize(
+      preview.uri,
+      (w, h) => {
+        if (cancelled || w <= 0 || h <= 0) return;
+        setPreview((p) => (p && p.uri === preview.uri ? { ...p, width: w, height: h } : p));
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [preview?.uri, preview?.type]);
 
   const getImagePickerAllMediaTypes = () => {
     const picker = ImagePicker as typeof ImagePicker & {

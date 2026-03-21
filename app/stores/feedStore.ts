@@ -5,13 +5,20 @@ import { create } from 'zustand';
 import { postsApi } from '@/services/api';
 import type { FeedPost } from '@/types';
 
-function normalizeFeedPost(raw: Record<string, unknown>): FeedPost {
+function positiveMediaDim(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Exported so single-post screens use the same media_width/height rules as the feed */
+export function normalizeFeedPost(raw: Record<string, unknown>): FeedPost {
   return {
     ...raw,
     id: String(raw.post_id ?? raw.id ?? ''),
     user_id: String(raw.user_id ?? raw.author_id ?? ''),
-    media_width: raw.media_width != null ? Number(raw.media_width) : null,
-    media_height: raw.media_height != null ? Number(raw.media_height) : null,
+    media_width: positiveMediaDim(raw.media_width),
+    media_height: positiveMediaDim(raw.media_height),
     author:
       (raw.author as FeedPost['author']) ??
       ({

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { supabaseAdmin } from '../config/supabase';
+import { supabaseAdmin, createSupabaseUserClient } from '../config/supabase';
 import { requireAuth, upload } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 import { mediaService } from '../services/mediaService';
@@ -97,7 +97,9 @@ export async function createPost(req: AuthRequest, res: Response) {
     expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
   };
 
-  let { data, error } = await supabaseAdmin
+  const db = createSupabaseUserClient(req.accessToken!);
+
+  let { data, error } = await db
     .from('posts')
     .insert({
       ...rowBase,
@@ -109,7 +111,7 @@ export async function createPost(req: AuthRequest, res: Response) {
 
   // Older DBs without migration 15_post_media_dimensions.sql — retry without dimension columns.
   if (error && isMissingPostsDimensionColumns(error)) {
-    ({ data, error } = await supabaseAdmin
+    ({ data, error } = await db
       .from('posts')
       .insert(rowBase)
       .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
@@ -123,7 +125,9 @@ export async function createPost(req: AuthRequest, res: Response) {
 export async function deletePost(req: AuthRequest, res: Response) {
   const { postId } = req.params;
 
-  const { error } = await supabaseAdmin
+  const db = createSupabaseUserClient(req.accessToken!);
+
+  const { error } = await db
     .from('posts')
     .update({ is_deleted: true })
     .eq('id', postId)
@@ -136,7 +140,9 @@ export async function deletePost(req: AuthRequest, res: Response) {
 export async function likePost(req: AuthRequest, res: Response) {
   const { postId } = req.params;
 
-  const { error } = await supabaseAdmin
+  const db = createSupabaseUserClient(req.accessToken!);
+
+  const { error } = await db
     .from('post_likes')
     .insert({ post_id: postId, user_id: req.userId });
 
@@ -150,7 +156,8 @@ export async function likePost(req: AuthRequest, res: Response) {
 
 export async function unlikePost(req: AuthRequest, res: Response) {
   const { postId } = req.params;
-  await supabaseAdmin
+  const db = createSupabaseUserClient(req.accessToken!);
+  await db
     .from('post_likes')
     .delete()
     .eq('post_id', postId)
@@ -161,7 +168,8 @@ export async function unlikePost(req: AuthRequest, res: Response) {
 
 export async function recordView(req: AuthRequest, res: Response) {
   const { postId } = req.params;
-  await supabaseAdmin
+  const db = createSupabaseUserClient(req.accessToken!);
+  await db
     .from('post_views')
     .insert({ post_id: postId, viewer_id: req.userId });
 
@@ -217,7 +225,9 @@ export async function addComment(req: AuthRequest, res: Response) {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid comment', data: null });
 
-  const { data, error } = await supabaseAdmin
+  const db = createSupabaseUserClient(req.accessToken!);
+
+  const { data, error } = await db
     .from('post_comments')
     .insert({ post_id: postId, user_id: req.userId, body: parsed.data.body })
     .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
@@ -230,7 +240,8 @@ export async function addComment(req: AuthRequest, res: Response) {
 export async function deleteComment(req: AuthRequest, res: Response) {
   const { postId, commentId } = req.params;
 
-  await supabaseAdmin
+  const db = createSupabaseUserClient(req.accessToken!);
+  await db
     .from('post_comments')
     .update({ is_deleted: true })
     .eq('id', commentId)
