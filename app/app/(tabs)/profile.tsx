@@ -22,17 +22,16 @@ export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
   const { nowPlaying } = useMusicStore();
   const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
-    setLoading(true);
-    postsApi.getUserPosts(user.id)
-      .then(({ data }) => setPosts(data.data))
-      .finally(() => setLoading(false));
+    if (!user?.id) return;
+    postsApi
+      .getUserPosts(user.id)
+      .then(({ data }) => setPosts(Array.isArray(data?.data) ? data.data : []))
+      .catch(() => setPosts([]));
   }, [user]);
 
-  if (!user) return null;
+  if (!user?.id) return null;
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -49,7 +48,9 @@ export default function ProfileScreen() {
           {user.profile_picture_url
             ? <Image source={{ uri: user.profile_picture_url }} style={styles.avatar} />
             : <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Text style={styles.avatarInitial}>{(user.display_name ?? user.username)[0].toUpperCase()}</Text>
+                <Text style={styles.avatarInitial}>
+                  {(user.display_name ?? user.username ?? '?')[0]?.toUpperCase() ?? '?'}
+                </Text>
               </View>}
         </View>
         <View style={styles.actionRow}>
@@ -70,7 +71,9 @@ export default function ProfileScreen() {
       </View>
 
       {/* Now playing */}
-      {nowPlaying && <MusicBadge track={nowPlaying} style={styles.music} />}
+      {nowPlaying?.song && nowPlaying?.source ? (
+        <MusicBadge track={nowPlaying} style={styles.music} />
+      ) : null}
 
       {/* Friends shortcut */}
       <TouchableOpacity style={styles.friendsRow} onPress={() => router.push('/friends')}>

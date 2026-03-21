@@ -33,9 +33,10 @@ app.use(cors({
 }));
 
 // ── Rate limiting ────────────────────────────────────────────
+// Dev + mobile apps hit many endpoints; default 100/15min caused 429 during normal use.
 const limiter = rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 900_000),
-  max:      Number(process.env.RATE_LIMIT_MAX ?? 100),
+  max:      Number(process.env.RATE_LIMIT_MAX ?? 800),
   standardHeaders: true,
   legacyHeaders: false,
 });

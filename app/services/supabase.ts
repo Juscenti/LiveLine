@@ -1,11 +1,13 @@
 // ============================================================
 // services/supabase.ts — Supabase client (singleton)
 // ============================================================
+import '@/utils/devConsoleFilterInstall';
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import { rewriteLocalhostForAndroidEmulator } from '@/utils/devNetwork';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const SUPABASE_URL = rewriteLocalhostForAndroidEmulator(process.env.EXPO_PUBLIC_SUPABASE_URL ?? '');
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 // Fail fast if env vars were not injected into the JS bundle.
@@ -38,7 +40,11 @@ const ExpoSecureStoreAdapter = {
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: ExpoSecureStoreAdapter as any,
-    autoRefreshToken: true,
+    /**
+     * In dev, automatic refresh spams fetch + Metro with "Network request failed"
+     * when the device is offline or misconfigured. Release builds keep refresh on.
+     */
+    autoRefreshToken: !__DEV__,
     persistSession: true,
     detectSessionInUrl: false,
   },

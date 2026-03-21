@@ -9,6 +9,7 @@ import {
   Text,
   TouchableOpacity,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
@@ -24,6 +25,7 @@ const { width: SCREEN_W } = Dimensions.get('window');
 export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const { posts, isLoading, isRefreshing, loadFeed, loadMore, refresh } = useFeedStore();
+  const showEmpty = !isLoading && posts.length === 0;
 
   const { columnWidth, listPad } = useMemo(() => {
     const pad = SPACING.base;
@@ -85,7 +87,11 @@ export default function FeedScreen() {
           />
         }
         ListEmptyComponent={
-          !isLoading ? (
+          isLoading ? (
+            <View style={styles.empty}>
+              <ActivityIndicator color={COLORS.accent} size="large" />
+            </View>
+          ) : showEmpty ? (
             <View style={styles.empty}>
               <Text style={styles.emptyEmoji}>⚡</Text>
               <Text style={styles.emptyTitle}>Nothing yet</Text>

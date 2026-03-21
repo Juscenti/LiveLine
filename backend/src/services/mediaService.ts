@@ -32,16 +32,22 @@ export const mediaService = {
     const baseKey = `${userId}/${uuidv4()}`;
 
     if (mediaType === 'image') {
-      const jpegBuffer = await sharp(file.buffer)
-        .rotate()
-        .resize({
-          width: 1080,
-          height: 1080,
-          fit: 'inside',
-          withoutEnlargement: true,
-        })
-        .jpeg({ quality: 82 })
-        .toBuffer();
+      let jpegBuffer: Buffer;
+      try {
+        jpegBuffer = await sharp(file.buffer)
+          .rotate()
+          .resize({
+            width: 1080,
+            height: 1080,
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
+          .jpeg({ quality: 82 })
+          .toBuffer();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`Image processing failed (${msg}). Try a JPEG/PNG from Library or retake the photo.`);
+      }
 
       const meta = await sharp(jpegBuffer).metadata();
       const mediaWidth = meta.width ?? null;

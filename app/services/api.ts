@@ -2,10 +2,11 @@
 // services/api.ts — Axios instance pointing to Node.js backend
 // ============================================================
 import axios from 'axios';
+import { rewriteLocalhostForAndroidEmulator } from '@/utils/devNetwork';
 import { supabase } from './supabase';
 import { getAccessToken } from './accessTokenStore';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+const BASE_URL = rewriteLocalhostForAndroidEmulator(process.env.EXPO_PUBLIC_API_URL ?? '');
 if (!BASE_URL) {
   throw new Error('Missing env: EXPO_PUBLIC_API_URL');
 }
@@ -26,7 +27,7 @@ const getBackendHealthUrl = () => {
 // Wake the backend (Render cold start) before we make authenticated calls.
 export const wakeBackend = async () => {
   try {
-    await axios.get(getBackendHealthUrl(), { timeout: 70000 });
+    await axios.get(getBackendHealthUrl(), { timeout: 45_000 });
   } catch {
     // Ignore; we'll still try the normal API flow afterwards.
   }

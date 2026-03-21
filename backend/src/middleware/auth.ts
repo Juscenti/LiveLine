@@ -52,6 +52,7 @@ import multer from 'multer';
 
 const ALLOWED_MIME = [
   'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  'image/heic', 'image/heif',
   'video/mp4', 'video/quicktime', 'video/webm',
 ];
 

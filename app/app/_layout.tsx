@@ -2,12 +2,18 @@
 // app/_layout.tsx — Root layout (Expo Router)
 // ============================================================
 import { useEffect } from 'react';
+import { LogBox } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { wakeBackend } from '@/services/api';
+
+if (__DEV__) {
+  // Transient offline / emulator DNS noise while Supabase or API retries.
+  LogBox.ignoreLogs(['Network request failed', 'AuthRetryableFetchError']);
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,11 +25,9 @@ export default function RootLayout() {
   const initialize = useAuthStore((s) => s.initialize);
 
   useEffect(() => {
-    // Render can cold-start; wake it up first so auth/profile/feed calls don't timeout.
-    (async () => {
-      await wakeBackend();
-      await initialize();
-    })();
+    // Don't block auth on backend wake (parallel). Emulator localhost fix is in api/supabase.
+    void wakeBackend();
+    void initialize();
   }, []);
 
   return (

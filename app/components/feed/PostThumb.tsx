@@ -1,7 +1,8 @@
 // ============================================================
 // components/feed/PostThumb.tsx — Compact post thumbnail
 // ============================================================
-import { TouchableOpacity, Image, View, Text, StyleSheet } from 'react-native';
+import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { COLORS, RADIUS } from '@/constants';
 import type { Post } from '@/types';
 
@@ -15,7 +16,8 @@ export default function PostThumb({ post, size, onPress }: Props) {
           <Image
             source={{ uri: post.thumbnail_url ?? post.media_url }}
             style={StyleSheet.absoluteFill}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
           />
         ) : (
           <View style={styles.placeholder}>

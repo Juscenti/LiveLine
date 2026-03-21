@@ -1,27 +1,24 @@
 // ============================================================
 // components/feed/PostCard.tsx — Masonry tile (Pinterest-style)
 // ============================================================
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  Alert,
-} from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, FEED } from '@/constants';
+import { deterministicAspectForPostId } from '@/utils/feedMasonry';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import type { FeedPost } from '@/types';
 
 dayjs.extend(relativeTime);
 
-export function getPostMediaAspectRatio(post: Pick<FeedPost, 'media_width' | 'media_height'>): number {
+export function getPostMediaAspectRatio(
+  post: Pick<FeedPost, 'id' | 'media_width' | 'media_height'>,
+): number {
   const w = post.media_width;
   const h = post.media_height;
   if (w != null && h != null && w > 0 && h > 0) return w / h;
-  return FEED.fallbackAspect;
+  return deterministicAspectForPostId(post.id);
 }
 
 interface Props {
@@ -34,8 +31,11 @@ export default function PostCard({ post, width, onPress }: Props) {
   const aspect = getPostMediaAspectRatio(post);
   const imageHeight = width / aspect;
 
-  const uri = post.thumbnail_url ?? post.media_url;
-  const showImage = post.media_type === 'image' || !!post.thumbnail_url;
+  const uri =
+    post.media_type === 'video'
+      ? (post.thumbnail_url || '').trim()
+      : (post.thumbnail_url || post.media_url || '').trim();
+  const showImage = uri.length > 0;
 
   const handleMenu = () => {
     Alert.alert('Post', 'More options coming soon.');
@@ -49,7 +49,9 @@ export default function PostCard({ post, width, onPress }: Props) {
             <Image
               source={{ uri }}
               style={[styles.image, { borderRadius: FEED.tileRadius }]}
-              resizeMode="cover"
+              contentFit="cover"
+              transition={200}
+              cachePolicy="memory-disk"
             />
           ) : (
             <View style={[styles.videoPlaceholder, { borderRadius: FEED.tileRadius }]}>

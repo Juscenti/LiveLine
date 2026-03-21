@@ -5,6 +5,29 @@ import { create } from 'zustand';
 import { postsApi } from '@/services/api';
 import type { FeedPost } from '@/types';
 
+function normalizeFeedPost(raw: Record<string, unknown>): FeedPost {
+  return {
+    ...raw,
+    id: String(raw.post_id ?? raw.id ?? ''),
+    user_id: String(raw.user_id ?? raw.author_id ?? ''),
+    media_width: raw.media_width != null ? Number(raw.media_width) : null,
+    media_height: raw.media_height != null ? Number(raw.media_height) : null,
+    author:
+      (raw.author as FeedPost['author']) ??
+      ({
+        id: raw.author_id,
+        username: raw.username,
+        display_name: raw.display_name,
+        profile_picture_url: raw.profile_picture_url,
+      } as FeedPost['author']),
+  } as FeedPost;
+}
+
+function normalizeFeedPosts(rows: unknown[] | undefined): FeedPost[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => normalizeFeedPost(r as Record<string, unknown>));
+}
+
 interface FeedState {
   posts: FeedPost[];
   cursor: string | null;
@@ -34,12 +57,11 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     try {
       const { data } = await postsApi.getFeed();
       set({
-        posts: data.data,
+        posts: normalizeFeedPosts(data.data),
         cursor: data.cursor,
         hasMore: data.has_more,
       });
     } catch {
-      // If backend is cold-starting or network fails, don't crash the UI.
       set({ posts: [], cursor: null, hasMore: false });
     } finally {
       set({ isLoading: false });
@@ -53,12 +75,11 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     try {
       const { data } = await postsApi.getFeed(cursor ?? undefined);
       set((s) => ({
-        posts: [...s.posts, ...data.data],
+        posts: [...s.posts, ...normalizeFeedPosts(data.data)],
         cursor: data.cursor,
         hasMore: data.has_more,
       }));
     } catch {
-      // Keep existing posts; just stop pagination on repeated failures.
       set({ hasMore: false });
     } finally {
       set({ isLoading: false });
@@ -69,32 +90,34 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     set({ isRefreshing: true, cursor: null, hasMore: true });
     try {
       const { data } = await postsApi.getFeed();
-      set({ posts: data.data, cursor: data.cursor, hasMore: data.has_more });
+      set({
+        posts: normalizeFeedPosts(data.data),
+        cursor: data.cursor,
+        hasMore: data.has_more,
+      });
     } catch {
-      // Leave existing posts in place if refresh fails.
+      // Keep existing posts if refresh fails.
     } finally {
       set({ isRefreshing: false });
     }
   },
 
   likePost: async (postId) => {
-    // Optimistic update
     set((s) => ({
       posts: s.posts.map((p) =>
         p.id === postId
           ? { ...p, like_count: p.like_count + 1, user_has_liked: true }
-          : p
+          : p,
       ),
     }));
     try {
       await postsApi.like(postId);
     } catch {
-      // Rollback
       set((s) => ({
         posts: s.posts.map((p) =>
           p.id === postId
             ? { ...p, like_count: p.like_count - 1, user_has_liked: false }
-            : p
+            : p,
         ),
       }));
     }
@@ -105,7 +128,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       posts: s.posts.map((p) =>
         p.id === postId
           ? { ...p, like_count: Math.max(p.like_count - 1, 0), user_has_liked: false }
-          : p
+          : p,
       ),
     }));
     try {
@@ -115,7 +138,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         posts: s.posts.map((p) =>
           p.id === postId
             ? { ...p, like_count: p.like_count + 1, user_has_liked: true }
-            : p
+            : p,
         ),
       }));
     }
@@ -125,5 +148,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     set((s) => ({ posts: s.posts.filter((p) => p.id !== postId) })),
 
   prependPost: (post) =>
-    set((s) => ({ posts: [post, ...s.posts] })),
+    set((s) => ({
+      posts: [normalizeFeedPost(post as unknown as Record<string, unknown>), ...s.posts],
+    })),
 }));

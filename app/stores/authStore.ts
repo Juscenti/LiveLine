@@ -71,6 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (email: string, password: string) => {
     set({ isLoading: true });
     try {
+      await wakeBackend();
       const resp = await withTimeout(authApi.login({ email, password }), 30000, 'Login');
       const session =
         resp?.data?.data?.session ??
