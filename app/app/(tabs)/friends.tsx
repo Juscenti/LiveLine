@@ -223,7 +223,7 @@ export default function FriendsTabScreen() {
 
       if (st === 'accepted') {
         return (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={styles.actionStack}>
             <PillButton label="Message" onPress={() => void openDm(uid)} />
             <PillButton label="Remove" variant="outline" onPress={() => remove(uid)} />
           </View>
@@ -460,7 +460,7 @@ export default function FriendsTabScreen() {
                 user={user}
                 onPress={() => router.push(`/profile/${friendId}`)}
                 trailing={
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={styles.actionStack}>
                     <PillButton label="Message" onPress={() => void openDm(String(friendId))} />
                     <PillButton label="Remove" variant="outline" onPress={() => remove(String(friendId))} />
                   </View>
@@ -585,4 +585,7 @@ const styles = StyleSheet.create({
   badgeText: { color: '#fff', fontSize: 11, fontWeight: FONTS.weights.bold },
 
   emptyFriends: { color: COLORS.textTertiary, marginBottom: SPACING.lg },
+
+  /** Stack so Message + Remove stay on-screen on narrow devices */
+  actionStack: { flexDirection: 'column', gap: 8, alignItems: 'stretch', minWidth: 108 },
 });

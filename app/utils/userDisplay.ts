@@ -25,3 +25,9 @@ export function formatUserHandle(username: string | null | undefined): string {
   if (!username?.trim()) return '';
   return `@${username.trim()}`;
 }
+
+/** Stable compare for UUID strings from API vs store (feed maps `author_id` → `user_id`). */
+export function isSameUserId(a?: string | null, b?: string | null): boolean {
+  if (a == null || b == null) return false;
+  return String(a).trim() === String(b).trim();
+}

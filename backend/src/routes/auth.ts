@@ -55,10 +55,20 @@ export async function register(req: Request, res: Response) {
     return res.status(400).json({ error: signInErr?.message ?? 'Registration succeeded but sign-in failed', data: null });
   }
 
+  const { data: profile, error: profileErr } = await supabaseAdmin
+    .from('users')
+    .select('*')
+    .eq('auth_id', signInData.user.id)
+    .single();
+
+  if (profileErr || !profile) {
+    return res.status(500).json({ error: 'Account created but profile row is missing', data: null });
+  }
+
   return res.status(201).json({
     data: {
       session: signInData.session,
-      user: signInData.user,
+      user: profile,
       message: 'Account created.',
     },
     error: null,
@@ -72,7 +82,17 @@ export async function login(req: Request, res: Response) {
   const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
   if (error) return res.status(401).json({ error: error.message, data: null });
 
-  return res.json({ data: { session: data.session, user: data.user }, error: null });
+  const { data: profile, error: profileErr } = await supabaseAdmin
+    .from('users')
+    .select('*')
+    .eq('auth_id', data.user.id)
+    .single();
+
+  if (profileErr || !profile) {
+    return res.status(401).json({ error: 'User profile not found', data: null });
+  }
+
+  return res.json({ data: { session: data.session, user: profile }, error: null });
 }
 
 export async function logout(_req: AuthRequest, res: Response) {

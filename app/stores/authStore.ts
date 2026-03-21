@@ -58,9 +58,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Listen to Supabase auth changes
     supabase.auth.onAuthStateChange(async (event, session) => {
       set({ session });
-      if (event === 'SIGNED_IN' && session) {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
         const { data } = await authApi.me().catch(() => ({ data: null }));
-        set({ user: data?.data ?? null });
+        // Never wipe profile on transient /auth/me failure (would blank Profile tab after login).
+        const prev = get().user;
+        set({ user: data?.data ?? prev });
       }
       if (event === 'SIGNED_OUT') {
         set({ user: null, session: null });

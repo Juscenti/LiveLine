@@ -9,6 +9,7 @@ import { COLORS, FONTS, FEED } from '@/constants';
 import { useAuthStore } from '@/stores/authStore';
 import { useFeedStore } from '@/stores/feedStore';
 import { formatApiError } from '@/utils/apiErrors';
+import { isSameUserId } from '@/utils/userDisplay';
 import { getPostMediaAspectRatio, normalizeAspectFromPixels } from '@/utils/feedMasonry';
 import { measureImageAspectFromUri } from '@/utils/imageAspect';
 import dayjs from 'dayjs';
@@ -37,7 +38,9 @@ const MIN_TILE_HEIGHT_FACTOR = 0.52;
 export default function PostCard({ post, width, onPress }: Props) {
   const user = useAuthStore((s) => s.user);
   const deletePost = useFeedStore((s) => s.deletePost);
-  const isOwner = user?.id === post.user_id;
+  const isOwner =
+    user?.id != null &&
+    (isSameUserId(user.id, post.user_id) || isSameUserId(user.id, post.author?.id));
 
   const uri =
     post.media_type === 'video'
@@ -143,9 +146,13 @@ export default function PostCard({ post, width, onPress }: Props) {
         <TouchableOpacity
           onPress={handleMenu}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          accessibilityLabel={isOwner ? 'Post options' : 'Post options'}
+          accessibilityLabel={isOwner ? 'Delete post' : 'Post options'}
         >
-          <Ionicons name="ellipsis-horizontal" size={18} color={COLORS.textTertiary} />
+          <Ionicons
+            name={isOwner ? 'trash-outline' : 'ellipsis-horizontal'}
+            size={18}
+            color={isOwner ? COLORS.error : COLORS.textTertiary}
+          />
         </TouchableOpacity>
       </View>
     </View>

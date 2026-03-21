@@ -20,6 +20,7 @@ import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
 import { getPostMediaAspectRatio, normalizeAspectFromPixels } from '@/utils/feedMasonry';
 import { measureImageAspectFromUri } from '@/utils/imageAspect';
 import { useResponsive } from '@/utils/responsive';
+import { isSameUserId } from '@/utils/userDisplay';
 import MusicBadge from '@/components/music/MusicBadge';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -118,7 +119,9 @@ export default function PostDetailScreen() {
     post.user_has_liked ? unlikePost(post.id) : likePost(post.id);
   };
 
-  const isOwner = user?.id === post.user_id;
+  const isOwner =
+    user?.id != null &&
+    (isSameUserId(user.id, post.user_id) || isSameUserId(user.id, post.author?.id));
 
   const handleDeletePost = async () => {
     if (!id) return;
