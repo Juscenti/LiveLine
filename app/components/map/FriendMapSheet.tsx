@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,10 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { COLORS, FONTS, RADIUS, SPACING } from '@/constants';
+import { COLORS, FONTS, RADIUS, SPACING, TAB_BAR } from '@/constants';
 import MusicBadge from '@/components/music/MusicBadge';
 import { getOrCreateDirectConversation } from '@/services/conversations';
 import type { MapFriend, MusicPlatform, MusicTrack } from '@/types';
@@ -27,6 +29,12 @@ function normalizeMusicSource(raw: string | null | undefined): MusicPlatform {
 
 export default function FriendMapSheet({ friend, onClose }: Props) {
   const [msgLoading, setMsgLoading] = useState(false);
+  const insets = useSafeAreaInsets();
+
+  const sheetBottom = useMemo(
+    () => insets.bottom + TAB_BAR.bottomGap + TAB_BAR.height + TAB_BAR.sheetGap,
+    [insets.bottom],
+  );
 
   const isNowPlaying =
     friend.music_is_currently_playing !== undefined
@@ -67,8 +75,13 @@ export default function FriendMapSheet({ friend, onClose }: Props) {
     }
   };
 
+  const openProfile = () => {
+    onClose();
+    router.push(`/profile/${friend.user_id}`);
+  };
+
   return (
-    <View style={sheetStyles.sheet} pointerEvents="box-none">
+    <View style={[sheetStyles.sheet, { bottom: sheetBottom }]} pointerEvents="box-none">
       <View style={sheetStyles.handle} />
 
       <ScrollView
@@ -78,30 +91,36 @@ export default function FriendMapSheet({ friend, onClose }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={sheetStyles.row}>
-          <View style={sheetStyles.avatarBorder}>
-            {friend.profile_picture_url ? (
-              <Image source={{ uri: friend.profile_picture_url }} style={sheetStyles.avatar} />
-            ) : (
-              <View style={[sheetStyles.avatar, sheetStyles.avatarPlaceholder]}>
-                <Text style={sheetStyles.avatarInitial}>
-                  {(friend.display_name ?? friend.username)[0].toUpperCase()}
-                </Text>
-              </View>
-            )}
-          </View>
-          <View style={{ flex: 1 }}>
+          <TouchableOpacity onPress={openProfile} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Open profile">
+            <View style={sheetStyles.avatarBorder}>
+              {friend.profile_picture_url ? (
+                <Image source={{ uri: friend.profile_picture_url }} style={sheetStyles.avatar} />
+              ) : (
+                <View style={[sheetStyles.avatar, sheetStyles.avatarPlaceholder]}>
+                  <Text style={sheetStyles.avatarInitial}>
+                    {(friend.display_name ?? friend.username)[0].toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={{ flex: 1 }} onPress={openProfile} activeOpacity={0.85}>
             <Text style={sheetStyles.name}>{friend.display_name ?? friend.username}</Text>
             <Text style={sheetStyles.username}>@{friend.username}</Text>
             {friend.activity_status ? (
               <Text style={sheetStyles.status}>{friend.activity_status}</Text>
             ) : null}
-          </View>
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={sheetStyles.closeBtn}>✕</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button" accessibilityLabel="Close">
+            <Ionicons name="close" size={22} color={COLORS.textTertiary} />
           </TouchableOpacity>
         </View>
 
-        {bio ? <Text style={sheetStyles.bio}>{bio}</Text> : null}
+        {bio ? (
+          <Text style={sheetStyles.bio} numberOfLines={5}>
+            {bio}
+          </Text>
+        ) : null}
 
         {fakeTrack ? (
           <MusicBadge track={fakeTrack} style={sheetStyles.music} />
@@ -124,14 +143,7 @@ export default function FriendMapSheet({ friend, onClose }: Props) {
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={sheetStyles.profileBtn}
-          onPress={() => {
-            onClose();
-            router.push(`/profile/${friend.user_id}`);
-          }}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={sheetStyles.profileBtn} onPress={openProfile} activeOpacity={0.85}>
           <Text style={sheetStyles.profileBtnText}>View full profile</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -142,10 +154,10 @@ export default function FriendMapSheet({ friend, onClose }: Props) {
 const sheetStyles = StyleSheet.create({
   sheet: {
     position: 'absolute',
-    bottom: 90,
     left: SPACING.base,
     right: SPACING.base,
     maxHeight: '52%',
+    zIndex: 9,
     backgroundColor: COLORS.bgCard,
     borderRadius: RADIUS.xl,
     paddingTop: SPACING.md,
@@ -186,7 +198,6 @@ const sheetStyles = StyleSheet.create({
   name: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.base },
   username: { color: COLORS.textSecondary, fontSize: FONTS.sizes.xs },
   status: { color: COLORS.accent, fontSize: FONTS.sizes.xs, marginTop: 2 },
-  closeBtn: { color: COLORS.textTertiary, fontSize: FONTS.sizes.lg },
   bio: {
     color: COLORS.textSecondary,
     fontSize: FONTS.sizes.sm,

@@ -45,6 +45,15 @@ export const COLORS = {
   tabBarIcon: '#FFFFFF',
 };
 
+/** Floating tab bar metrics — keep in sync with `app/(tabs)/_layout.tsx` `FloatingTabBar` */
+export const TAB_BAR = {
+  iconSize: 23,
+  height: Math.round(23 * 2.5),
+  bottomGap: 14,
+  /** Space between tab dock top and overlays (e.g. map friend sheet) */
+  sheetGap: 10,
+} as const;
+
 export const FONTS = {
   sizes: {
     xs: 11,

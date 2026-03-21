@@ -2,11 +2,10 @@
 // app/(tabs)/map.tsx — Live map
 // ============================================================
 import { useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Platform } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, Platform, Pressable } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useMapStore } from '@/stores/mapStore';
-import { useAuthStore } from '@/stores/authStore';
-import { COLORS, MAP, SPACING, FONTS, RADIUS } from '@/constants';
+import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
 import FriendMapMarker from '@/components/map/FriendMapMarker';
 import FriendMapSheet from '@/components/map/FriendMapSheet';
 import type { MapFriend } from '@/types';
@@ -15,12 +14,10 @@ export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
   const {
     myLocation, nearbyFriends, selectedFriendId,
-    isTracking, startTracking, stopTracking,
+    startTracking, stopTracking,
     selectFriend, locationPermission,
     refreshNearby,
   } = useMapStore();
-  const { user } = useAuthStore();
-
   useEffect(() => {
     startTracking();
     return () => stopTracking();
@@ -72,7 +69,6 @@ export default function MapScreen() {
           region={region as any}
           showsUserLocation={false}
           customMapStyle={darkMapStyle}
-          onPress={() => selectFriend(null)}
         >
           {/* Self marker */}
           {myLocation && (
@@ -89,7 +85,8 @@ export default function MapScreen() {
               key={friend.user_id}
               coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
               anchor={{ x: 0.5, y: 1 }}
-              tracksViewChanges={false}
+              // Custom views + tracksViewChanges={false} can block marker taps on some devices.
+              tracksViewChanges
               zIndex={friend.user_id === selectedFriendId ? 1000 : 1}
               onPress={() => {
                 selectFriend(friend.user_id);
@@ -104,6 +101,16 @@ export default function MapScreen() {
         <View style={styles.loadingMap}>
           <Text style={styles.loadingMapTitle}>Getting your location…</Text>
         </View>
+      )}
+
+      {/* Dim map + dismiss when a friend card is open */}
+      {selectedFriend && (
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => selectFriend(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Close friend preview"
+        />
       )}
 
       {/* Header */}
@@ -141,11 +148,17 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   map: { ...StyleSheet.absoluteFillObject },
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    zIndex: 8,
+  },
   header: {
     position: 'absolute',
     top: 56,
     left: SPACING.base,
     right: SPACING.base,
+    zIndex: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',

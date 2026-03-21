@@ -1,12 +1,12 @@
 // ============================================================
 // app/(tabs)/profile.tsx — Own profile
 // ============================================================
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  Image, FlatList, Dimensions,
+  Image, Dimensions, ActivityIndicator,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useMusicStore } from '@/stores/musicStore';
 import { postsApi } from '@/services/api';
@@ -19,9 +19,15 @@ const { width } = Dimensions.get('window');
 const THUMB = (width - SPACING.base * 2 - SPACING.xs * 2) / 3;
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuthStore();
+  const { user, logout, refreshUser } = useAuthStore();
   const { nowPlaying } = useMusicStore();
   const [posts, setPosts] = useState<Post[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) void refreshUser();
+    }, [user?.id, refreshUser]),
+  );
 
   useEffect(() => {
     if (!user?.id) return;
@@ -31,7 +37,14 @@ export default function ProfileScreen() {
       .catch(() => setPosts([]));
   }, [user]);
 
-  if (!user?.id) return null;
+  if (!user?.id) {
+    return (
+      <View style={[styles.container, styles.profileLoading]}>
+        <ActivityIndicator color={COLORS.accent} size="large" />
+        <Text style={styles.profileLoadingText}>Loading profile…</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -108,6 +121,8 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
+  profileLoading: { justifyContent: 'center', alignItems: 'center', gap: SPACING.md },
+  profileLoadingText: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm },
   bannerContainer: { height: 140 },
   banner: { width: '100%', height: '100%' },
   bannerPlaceholder: { backgroundColor: COLORS.bgElevated },

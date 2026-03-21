@@ -57,11 +57,8 @@ const ExpoSecureStoreAdapter = {
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: ExpoSecureStoreAdapter as any,
-    /**
-     * In dev, automatic refresh spams fetch + Metro with "Network request failed"
-     * when the device is offline or misconfigured. Release builds keep refresh on.
-     */
-    autoRefreshToken: !__DEV__,
+    /** Must stay on so access tokens refresh while the app is open; otherwise users re-login constantly. */
+    autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
   },

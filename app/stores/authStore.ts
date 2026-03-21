@@ -7,6 +7,18 @@ import { authApi, wakeBackend } from '@/services/api';
 import { clearAccessToken, setAccessToken } from '@/services/accessTokenStore';
 import type { User } from '@/types';
 
+/** Cold Render / flaky Wi‑Fi: first /auth/me often fails — retry before giving up. */
+async function fetchMeWithRetry(maxAttempts = 5): Promise<User | null> {
+  let last: User | null = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { data } = await authApi.me().catch(() => ({ data: null }));
+    last = (data?.data as User | null) ?? null;
+    if (last) return last;
+    await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+  }
+  return last;
+}
+
 const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<T>((_resolve, reject) => {
@@ -44,14 +56,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        const { data } = await authApi.me().catch(() => ({ data: null }));
-        set({ session, user: data?.data ?? null });
+        const user = await fetchMeWithRetry();
+        set({ session, user });
+        if (!user) {
+          void wakeBackend().finally(() => {
+            void get().refreshUser();
+          });
+        }
       } else {
         set({ session: null, user: null });
       }
       set({ isInitialized: true });
     } catch {
-      // If auth initialization fails (e.g., transient network), still allow the app to render.
       set({ session: null, user: null, isInitialized: true });
     }
 

@@ -1,32 +1,13 @@
 // ============================================================
 // app/index.tsx — Auth redirect gate
 // ============================================================
-import { useEffect } from 'react';
 import { Redirect } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { useAuthStore } from '@/stores/authStore';
 import { COLORS } from '@/constants';
 
-/**
- * Session can exist without `user` if `/auth/me` failed (bad token, network).
- * Never send users into tabs with only a session — Profile and others assume `user`.
- */
-function StaleSessionClearing() {
-  const logout = useAuthStore((s) => s.logout);
-
-  useEffect(() => {
-    void logout();
-  }, [logout]);
-
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.bg }}>
-      <ActivityIndicator color={COLORS.accent} />
-    </View>
-  );
-}
-
 export default function Index() {
-  const { session, user, isInitialized } = useAuthStore();
+  const { session, isInitialized } = useAuthStore();
 
   if (!isInitialized) {
     return (
@@ -40,9 +21,6 @@ export default function Index() {
     return <Redirect href="/(auth)/login" />;
   }
 
-  if (!user) {
-    return <StaleSessionClearing />;
-  }
-
+  // Session is enough to enter the app; profile loads via /auth/me retries + refreshUser.
   return <Redirect href="/(tabs)/feed" />;
 }
