@@ -152,11 +152,15 @@ export interface MapFriend {
   username: string;
   display_name: string | null;
   profile_picture_url: string | null;
+  bio?: string | null;
   latitude: number;
   longitude: number;
   activity_status: string | null;
   music_song: string | null;
   music_artist: string | null;
   music_cover_url: string | null;
+  /** From music_activity: true = now playing, false = most recent track */
+  music_is_currently_playing?: boolean;
+  music_source?: MusicPlatform | null;
   distance_meters: number;
 }

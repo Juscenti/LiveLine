@@ -1,6 +1,7 @@
 // ============================================================
 // services/conversations.ts — Direct messages via Supabase (RLS)
 // ============================================================
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
 export type ConversationListItem = {
@@ -159,4 +160,88 @@ export async function getOrCreateDirectConversation(otherUserId: string): Promis
   } catch {
     return null;
   }
+}
+
+export type ChatMessage = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  body: string | null;
+  image_url: string | null;
+  created_at: string;
+};
+
+async function getMyPublicUserId(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return null;
+  const { data: me } = await supabase
+    .from('users')
+    .select('id')
+    .eq('auth_id', session.user.id)
+    .maybeSingle();
+  return (me?.id as string) ?? null;
+}
+
+export async function loadMessages(conversationId: string): Promise<ChatMessage[]> {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('id, conversation_id, sender_id, body, image_url, created_at')
+    .eq('conversation_id', conversationId)
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: true })
+    .limit(200);
+
+  if (error || !data) return [];
+  return data as ChatMessage[];
+}
+
+export async function sendTextMessage(conversationId: string, body: string): Promise<ChatMessage | null> {
+  const trimmed = body.trim();
+  if (!trimmed) return null;
+
+  const myId = await getMyPublicUserId();
+  if (!myId) return null;
+
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({
+      conversation_id: conversationId,
+      sender_id: myId,
+      body: trimmed,
+    })
+    .select('id, conversation_id, sender_id, body, image_url, created_at')
+    .single();
+
+  if (error || !data) return null;
+  return data as ChatMessage;
+}
+
+/** Subscribe to new rows in this conversation (Realtime publication must include `messages`). */
+export function subscribeToConversationMessages(
+  conversationId: string,
+  onInsert: (row: ChatMessage) => void,
+): RealtimeChannel {
+  const channel = supabase
+    .channel(`dm:${conversationId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      (payload) => {
+        const row = payload.new as ChatMessage;
+        if ((row as { is_deleted?: boolean }).is_deleted) return;
+        onInsert(row);
+      },
+    )
+    .subscribe();
+
+  return channel;
+}
+
+export async function unsubscribeChannel(channel: RealtimeChannel) {
+  await supabase.removeChannel(channel);
 }

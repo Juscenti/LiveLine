@@ -89,6 +89,8 @@ export default function MapScreen() {
               key={friend.user_id}
               coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
               anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
+              zIndex={friend.user_id === selectedFriendId ? 1000 : 1}
               onPress={() => {
                 selectFriend(friend.user_id);
                 openFriendOnMap(friend);

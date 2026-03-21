@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Response } from 'express';
-import { createSupabaseUserClient, supabaseAdmin } from '../config/supabase';
+import { createSupabaseUserClient } from '../config/supabase';
 import { requireAuth } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 
@@ -16,11 +16,11 @@ function normalizeStatus(raw: string | null | undefined) {
 }
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
-  const userSupabase = req.accessToken ? createSupabaseUserClient(req.accessToken) : null;
+  const db = createSupabaseUserClient(req.accessToken!);
 
   // Avoid PostgREST relationship inference on views (like `v_friends`).
   // Instead, query `friendships` directly and compute `friend_id` in JS.
-  const { data: q1, error: q1Error } = await (userSupabase ?? supabaseAdmin)
+  const { data: q1, error: q1Error } = await db
     .from('friendships')
     .select('id, addressee_id, created_at')
     .eq('requester_id', req.userId)
@@ -28,7 +28,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
   if (q1Error) return res.status(500).json({ error: q1Error.message, data: null });
 
-  const { data: q2, error: q2Error } = await (userSupabase ?? supabaseAdmin)
+  const { data: q2, error: q2Error } = await db
     .from('friendships')
     .select('id, requester_id, created_at')
     .eq('addressee_id', req.userId)
@@ -52,7 +52,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   const friendIds = rows.map((r) => r.friend_id).filter(Boolean);
   if (friendIds.length === 0) return res.json({ data: [], error: null });
 
-  const { data: usersData, error: usersError } = await (userSupabase ?? supabaseAdmin)
+  const { data: usersData, error: usersError } = await db
     .from('users')
     .select('id, username, display_name, profile_picture_url')
     .in('id', friendIds);
@@ -73,8 +73,8 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
 // Pending outgoing requests (where I am the requester)
 router.get('/outgoing', requireAuth, async (req: AuthRequest, res: Response) => {
-  const userSupabase = req.accessToken ? createSupabaseUserClient(req.accessToken) : null;
-  const { data, error } = await (userSupabase ?? supabaseAdmin)
+  const db = createSupabaseUserClient(req.accessToken!);
+  const { data, error } = await db
     .from('friendships')
     .select('*, addressee:users!addressee_id(id, username, display_name, profile_picture_url)')
     .eq('requester_id', req.userId)
@@ -89,8 +89,8 @@ router.get('/outgoing', requireAuth, async (req: AuthRequest, res: Response) => 
 router.get('/status/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
   const targetId = req.params.userId;
 
-  const userSupabase = req.accessToken ? createSupabaseUserClient(req.accessToken) : null;
-  const { data, error } = await (userSupabase ?? supabaseAdmin)
+  const db = createSupabaseUserClient(req.accessToken!);
+  const { data, error } = await db
     .from('friendships')
     .select('*')
     .or(
@@ -118,8 +118,8 @@ router.get('/status/:userId', requireAuth, async (req: AuthRequest, res: Respons
 });
 
 router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => {
-  const userSupabase = req.accessToken ? createSupabaseUserClient(req.accessToken) : null;
-  const { data, error } = await (userSupabase ?? supabaseAdmin)
+  const db = createSupabaseUserClient(req.accessToken!);
+  const { data, error } = await db
     .from('friendships')
     .select('*, requester:users!requester_id(id, username, display_name, profile_picture_url)')
     .eq('addressee_id', req.userId)
@@ -130,8 +130,8 @@ router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => 
 });
 
 router.post('/request/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
-  const userSupabase = req.accessToken ? createSupabaseUserClient(req.accessToken) : null;
-  const { data, error } = await (userSupabase ?? supabaseAdmin)
+  const db = createSupabaseUserClient(req.accessToken!);
+  const { data, error } = await db
     .from('friendships')
     .insert({ requester_id: req.userId, addressee_id: req.params.userId })
     .select()
@@ -148,8 +148,8 @@ router.post('/request/:userId', requireAuth, async (req: AuthRequest, res: Respo
 });
 
 router.patch('/:id/accept', requireAuth, async (req: AuthRequest, res: Response) => {
-  const userSupabase = req.accessToken ? createSupabaseUserClient(req.accessToken) : null;
-  const { error } = await (userSupabase ?? supabaseAdmin)
+  const db = createSupabaseUserClient(req.accessToken!);
+  const { error } = await db
     .from('friendships')
     .update({ status: 'accepted' })
     .eq('id', req.params.id)
@@ -160,8 +160,8 @@ router.patch('/:id/accept', requireAuth, async (req: AuthRequest, res: Response)
 });
 
 router.patch('/:id/decline', requireAuth, async (req: AuthRequest, res: Response) => {
-  const userSupabase = req.accessToken ? createSupabaseUserClient(req.accessToken) : null;
-  const { error } = await (userSupabase ?? supabaseAdmin)
+  const db = createSupabaseUserClient(req.accessToken!);
+  const { error } = await db
     .from('friendships')
     .update({ status: 'declined' })
     .eq('id', req.params.id)
@@ -172,8 +172,8 @@ router.patch('/:id/decline', requireAuth, async (req: AuthRequest, res: Response
 });
 
 router.delete('/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
-  const userSupabase = req.accessToken ? createSupabaseUserClient(req.accessToken) : null;
-  await (userSupabase ?? supabaseAdmin)
+  const db = createSupabaseUserClient(req.accessToken!);
+  await db
     .from('friendships')
     .delete()
     .or(
@@ -185,8 +185,8 @@ router.delete('/:userId', requireAuth, async (req: AuthRequest, res: Response) =
 });
 
 router.post('/block/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
-  const userSupabase = req.accessToken ? createSupabaseUserClient(req.accessToken) : null;
-  const { error } = await (userSupabase ?? supabaseAdmin)
+  const db = createSupabaseUserClient(req.accessToken!);
+  const { error } = await db
     .from('friendships')
     .update({ status: 'blocked' })
     .or(
