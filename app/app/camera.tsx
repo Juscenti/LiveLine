@@ -20,7 +20,7 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image } from 'expo-image';
-import { Video, ResizeMode } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { postsApi } from '@/services/api';
@@ -34,6 +34,21 @@ type Preview = {
   width?: number;
   height?: number;
 };
+
+function PreviewVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.play();
+  });
+  return (
+    <VideoView
+      player={player}
+      style={{ width: '100%', height: '100%' }}
+      contentFit="contain"
+      nativeControls
+    />
+  );
+}
 
 export default function CameraScreen() {
   const { width: winW } = useWindowDimensions();
@@ -92,14 +107,6 @@ export default function CameraScreen() {
     };
   }, [preview?.uri, preview?.type]);
 
-  const getImagePickerAllMediaTypes = () => {
-    const picker = ImagePicker as typeof ImagePicker & {
-      MediaType?: { All: string };
-      MediaTypeOptions?: { All: string };
-    };
-    return picker?.MediaType?.All ?? picker?.MediaTypeOptions?.All ?? null;
-  };
-
   const takePicture = async () => {
     const photo = await cameraRef.current?.takePictureAsync({ quality: 0.85 });
     if (photo) {
@@ -124,13 +131,11 @@ export default function CameraScreen() {
   };
 
   const pickFromGallery = async () => {
-    const All = getImagePickerAllMediaTypes();
-    const options: ImagePicker.ImagePickerOptions = {
+    const result = await ImagePicker.launchImageLibraryAsync({
       quality: 0.85,
       videoMaxDuration: POST.MAX_DURATION_SEC,
-    };
-    if (All) (options as { mediaTypes?: unknown }).mediaTypes = All;
-    const result = await ImagePicker.launchImageLibraryAsync(options);
+      mediaTypes: ['images', 'videos'],
+    });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
       setPreview({
@@ -227,13 +232,7 @@ export default function CameraScreen() {
                 transition={300}
               />
             ) : (
-              <Video
-                source={{ uri: preview.uri }}
-                style={styles.previewMedia}
-                useNativeControls
-                resizeMode={ResizeMode.CONTAIN}
-                isLooping
-              />
+              <PreviewVideo uri={preview.uri} />
             )}
           </View>
 

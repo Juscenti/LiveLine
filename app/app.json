@@ -11,7 +11,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0A0A0A"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.liveline.app",
@@ -57,7 +59,8 @@
         {
           "color": "#00FF94"
         }
-      ]
+      ],
+      "expo-video"
     ],
     "scheme": "liveline",
     "experiments": {

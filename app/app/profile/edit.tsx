@@ -31,18 +31,11 @@ export default function EditProfileScreen() {
     setBio(user.bio ?? '');
   }, [user]);
 
-  const getImagePickerImagesMediaTypes = () => {
-    const picker: any = ImagePicker;
-    // Different expo-image-picker versions expose either `MediaType` or
-    // `MediaTypeOptions`. Your current build doesn't have `MediaType`.
-    return picker?.MediaType?.Images ?? picker?.MediaTypeOptions?.Images ?? null;
-  };
-
   const pickAvatar = async () => {
-    const Images = getImagePickerImagesMediaTypes();
-    const options: any = { quality: 0.85 };
-    if (Images) options.mediaTypes = Images;
-    const res = await ImagePicker.launchImageLibraryAsync(options);
+    const res = await ImagePicker.launchImageLibraryAsync({
+      quality: 0.85,
+      mediaTypes: ['images'],
+    });
     if (!res.canceled && res.assets[0]) {
       setAvatarUri(res.assets[0].uri);
       if (res.assets[0].mimeType) setAvatarMime(res.assets[0].mimeType);
@@ -50,10 +43,10 @@ export default function EditProfileScreen() {
   };
 
   const pickBanner = async () => {
-    const Images = getImagePickerImagesMediaTypes();
-    const options: any = { quality: 0.85 };
-    if (Images) options.mediaTypes = Images;
-    const res = await ImagePicker.launchImageLibraryAsync(options);
+    const res = await ImagePicker.launchImageLibraryAsync({
+      quality: 0.85,
+      mediaTypes: ['images'],
+    });
     if (!res.canceled && res.assets[0]) {
       setBannerUri(res.assets[0].uri);
       if (res.assets[0].mimeType) setBannerMime(res.assets[0].mimeType);

@@ -10,7 +10,7 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { postsApi } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -26,6 +26,13 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import type { FeedPost } from '@/types';
 
 dayjs.extend(relativeTime);
+
+function PostDetailVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = false;
+  });
+  return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="cover" nativeControls />;
+}
 
 export default function PostDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -214,13 +221,7 @@ export default function PostDetailScreen() {
             )
           ) : (
             post.media_url ? (
-              <Video
-                source={{ uri: post.media_url }}
-                style={styles.mediaImage}
-                shouldPlay={false}
-                useNativeControls
-                resizeMode={ResizeMode.COVER}
-              />
+              <PostDetailVideo uri={post.media_url} />
             ) : (
               <View style={styles.mediaPlaceholder}>
                 <Text style={styles.mediaPlaceholderText}>▶</Text>

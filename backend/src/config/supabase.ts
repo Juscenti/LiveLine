@@ -22,14 +22,12 @@ export const supabaseAnon = createClient(
 
 /**
  * Per-request client for mutations that must satisfy RLS (posts, likes, comments, …).
- * Use the **anon** key + the caller's Supabase JWT so PostgREST runs as `authenticated`
- * and `auth.uid()` matches policies. Pure `service_role` without impersonation can still
- * hit "new row violates RLS" when policies use `auth.uid()` and the request has no user JWT.
- * Falls back to service role + JWT if `SUPABASE_ANON_KEY` is unset.
+ * Uses the **service role** key + the caller's Supabase JWT in `Authorization`.
+ * Do **not** use `SUPABASE_ANON_KEY` here — a wrong/missing anon key causes
+ * "Invalid API key" for every request; service role is always valid.
  */
 export const createSupabaseUserClient = (accessToken: string) => {
-  const key = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(process.env.SUPABASE_URL!, key, {
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
     auth: { autoRefreshToken: false, persistSession: false },
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
