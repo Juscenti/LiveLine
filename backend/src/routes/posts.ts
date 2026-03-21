@@ -19,7 +19,15 @@ router.get('/:postId/comments', requireAuth, getComments);
 router.post('/:postId/comments', requireAuth, addComment);
 router.delete('/:postId/comments/:commentId', requireAuth, deleteComment);
 
-export default router;
+function isMissingPostsDimensionColumns(error: { message?: string; code?: string }): boolean {
+  const m = String(error.message ?? '').toLowerCase();
+  return (
+    m.includes('media_width') ||
+    m.includes('media_height') ||
+    (m.includes('column') && m.includes('does not exist')) ||
+    error.code === '42703'
+  );
+}
 
 export async function getFeed(req: AuthRequest, res: Response) {
   const cursor = req.query.cursor as string | undefined;
@@ -67,26 +75,46 @@ export async function createPost(req: AuthRequest, res: Response) {
 
   const mediaType = file.mimetype.startsWith('video/') ? 'video' : 'image';
 
-  const { mediaUrl, thumbnailUrl, durationSec, mediaWidth, mediaHeight } =
-    await mediaService.processAndUpload(file as any, req.userId!, mediaType);
+  let processed: Awaited<ReturnType<typeof mediaService.processAndUpload>>;
+  try {
+    processed = await mediaService.processAndUpload(file as any, req.userId!, mediaType);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Media processing failed';
+    return res.status(500).json({ error: msg, data: null });
+  }
 
-  const { data, error } = await supabaseAdmin
+  const { mediaUrl, thumbnailUrl, durationSec, mediaWidth, mediaHeight } = processed;
+
+  const rowBase = {
+    user_id: req.userId,
+    media_url: mediaUrl,
+    media_type: mediaType,
+    thumbnail_url: thumbnailUrl,
+    duration_sec: durationSec,
+    caption: caption ?? null,
+    visibility,
+    music_id: music_id ?? null,
+    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  };
+
+  let { data, error } = await supabaseAdmin
     .from('posts')
     .insert({
-      user_id: req.userId,
-      media_url: mediaUrl,
-      media_type: mediaType,
-      thumbnail_url: thumbnailUrl,
-      duration_sec: durationSec,
+      ...rowBase,
       media_width: mediaWidth,
       media_height: mediaHeight,
-      caption: caption ?? null,
-      visibility,
-      music_id: music_id ?? null,
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     })
     .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
     .single();
+
+  // Older DBs without migration 15_post_media_dimensions.sql — retry without dimension columns.
+  if (error && isMissingPostsDimensionColumns(error)) {
+    ({ data, error } = await supabaseAdmin
+      .from('posts')
+      .insert(rowBase)
+      .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
+      .single());
+  }
 
   if (error) return res.status(500).json({ error: error.message, data: null });
   return res.status(201).json({ data, error: null });
@@ -212,3 +240,4 @@ export async function deleteComment(req: AuthRequest, res: Response) {
   return res.json({ data: { deleted: true }, error: null });
 }
 
+export default router;

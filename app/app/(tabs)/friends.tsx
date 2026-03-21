@@ -1,3 +1,6 @@
+// ============================================================
+// app/(tabs)/friends.tsx — Messages hub: Chats + Social (friends / requests)
+// ============================================================
 import { useCallback, useEffect, useState } from 'react';
 import {
   ScrollView,
@@ -9,10 +12,24 @@ import {
   TextInput,
   Alert,
   Image,
+  FlatList,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import { friendsApi, usersApi } from '@/services/api';
+import { loadConversationList, type ConversationListItem } from '@/services/conversations';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
+
+dayjs.extend(relativeTime);
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 type FriendStatus =
   | 'none'
@@ -30,23 +47,35 @@ type AnyUser = {
   profile_picture_url?: string | null;
 };
 
+type HubSegment = 'chats' | 'social';
+
 export default function FriendsTabScreen() {
+  const insets = useSafeAreaInsets();
+  const [segment, setSegment] = useState<HubSegment>('chats');
+
   const [loading, setLoading] = useState(false);
   const [friends, setFriends] = useState<any[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
   const [outgoing, setOutgoing] = useState<any[]>([]);
+
+  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [convLoading, setConvLoading] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<AnyUser[]>([]);
   const [statusByUserId, setStatusByUserId] = useState<Record<string, FriendStatusPayload>>({});
 
+  const [pendingOpen, setPendingOpen] = useState(true);
+
+  const pendingTotal = requests.length + outgoing.length;
+
   const avatarInitial = useCallback(
     (u: AnyUser) => (u.display_name ?? u.username ?? '?')[0]?.toUpperCase() ?? '?',
     [],
   );
 
-  const load = useCallback(async () => {
+  const loadFriendsData = useCallback(async () => {
     setLoading(true);
     try {
       const [friendsRes, requestsRes, outgoingRes] = await Promise.all([
@@ -60,29 +89,45 @@ export default function FriendsTabScreen() {
       setOutgoing(outgoingRes.data.data ?? outgoingRes.data ?? []);
     } catch (e: any) {
       const serverError = e?.response?.data?.error;
-      Alert.alert('Failed to load friends', serverError ?? e.message ?? 'Unknown error');
+      Alert.alert('Failed to load', serverError ?? e.message ?? 'Unknown error');
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const loadConversations = useCallback(async () => {
+    setConvLoading(true);
+    try {
+      const rows = await loadConversationList();
+      setConversations(rows);
+    } finally {
+      setConvLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadFriendsData();
+  }, [loadFriendsData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadConversations();
+    }, [loadConversations]),
+  );
 
   const accept = async (friendshipId: string) => {
     await friendsApi.acceptRequest(friendshipId);
-    await load();
+    await loadFriendsData();
   };
 
   const decline = async (friendshipId: string) => {
     await friendsApi.declineRequest(friendshipId);
-    await load();
+    await loadFriendsData();
   };
 
   const remove = async (userId: string) => {
     await friendsApi.remove(userId);
-    await load();
+    await loadFriendsData();
   };
 
   const sendRequest = async (userId: string) => {
@@ -91,7 +136,7 @@ export default function FriendsTabScreen() {
     } catch (e: any) {
       Alert.alert('Cannot send request', e?.response?.data?.error ?? e?.message ?? 'Unknown error');
     } finally {
-      await load();
+      await loadFriendsData();
     }
   };
 
@@ -137,6 +182,11 @@ export default function FriendsTabScreen() {
   const onSearchPress = useCallback(() => {
     void search();
   }, [search]);
+
+  const togglePending = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setPendingOpen((o) => !o);
+  };
 
   const StatusActions = useCallback(
     ({ u }: { u: AnyUser }) => {
@@ -188,7 +238,6 @@ export default function FriendsTabScreen() {
         );
       }
 
-      // none/declined => show add button unless blocked
       return (
         <TouchableOpacity style={[styles.smallBtn, styles.smallBtnPrimary]} onPress={() => sendRequest(u.id)}>
           <Text style={styles.smallBtnTextInverse}>Add</Text>
@@ -198,164 +247,308 @@ export default function FriendsTabScreen() {
     [accept, decline, remove, sendRequest, statusByUserId],
   );
 
+  const renderChatRow = ({ item }: { item: ConversationListItem }) => {
+    const name = item.other_user.display_name ?? item.other_user.username;
+    const time = item.last_at != null ? dayjs(item.last_at).fromNow() : '';
+
+    return (
+      <TouchableOpacity
+        style={styles.chatRow}
+        onPress={() => router.push(`/messages/${item.id}`)}
+        activeOpacity={0.85}
+      >
+        <View style={styles.avatarCircle}>
+          {item.other_user.profile_picture_url ? (
+            <Image source={{ uri: item.other_user.profile_picture_url }} style={styles.avatarImg} />
+          ) : (
+            <Text style={styles.avatarInitial}>{name[0]?.toUpperCase() ?? '?'}</Text>
+          )}
+        </View>
+        <View style={styles.chatMid}>
+          <Text style={styles.chatName} numberOfLines={1}>
+            {name}
+          </Text>
+          <Text style={styles.chatPreview} numberOfLines={1}>
+            {item.last_preview}
+          </Text>
+        </View>
+        {time ? <Text style={styles.chatTime}>{time}</Text> : null}
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Friends</Text>
+    <View style={[styles.screen, { paddingTop: insets.top + 8 }]}>
+      <View style={styles.topBar}>
+        <Text style={styles.title}>Messages</Text>
         <TouchableOpacity style={styles.headerLink} onPress={() => router.push('/map')}>
           <Text style={styles.headerLinkText}>Live map</Text>
         </TouchableOpacity>
       </View>
 
-      {loading && (
-        <View style={styles.loading}>
-          <ActivityIndicator color={COLORS.accent} />
-        </View>
-      )}
+      <View style={styles.segmentRow}>
+        <TouchableOpacity
+          style={[styles.segmentPill, segment === 'chats' && styles.segmentPillActive]}
+          onPress={() => setSegment('chats')}
+        >
+          <Text style={[styles.segmentText, segment === 'chats' && styles.segmentTextActive]}>Chats</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.segmentPill, segment === 'social' && styles.segmentPillActive]}
+          onPress={() => setSegment('social')}
+        >
+          <Text style={[styles.segmentText, segment === 'social' && styles.segmentTextActive]}>
+            Social
+            {pendingTotal > 0 ? ` (${pendingTotal})` : ''}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-      {!loading && (
-        <>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Find people</Text>
-            <View style={styles.searchRow}>
-              <TextInput
-                style={styles.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search by username"
-                placeholderTextColor={COLORS.textTertiary}
-                autoCapitalize="none"
-              />
-              <TouchableOpacity style={styles.searchBtn} onPress={onSearchPress} disabled={searchLoading}>
-                {searchLoading ? (
-                  <ActivityIndicator color={COLORS.textInverse} />
-                ) : (
-                  <Text style={styles.searchBtnText}>Search</Text>
-                )}
-              </TouchableOpacity>
+      {segment === 'chats' ? (
+        <View style={styles.flex1}>
+          {convLoading ? (
+            <View style={styles.centerPad}>
+              <ActivityIndicator color={COLORS.accent} />
             </View>
-
-            {searchResults.length === 0 && !searchLoading ? <Text style={styles.empty}>Search to add friends.</Text> : null}
-
-            {searchResults.length > 0 ? (
-              <View style={{ marginTop: SPACING.md }}>
-                {searchResults.map((u) => (
-                  <View key={u.id} style={styles.userRow}>
-                    <TouchableOpacity
-                      style={styles.userMain}
-                      onPress={() => router.push(`/profile/${u.id}`)}
-                      activeOpacity={0.85}
-                    >
-                      <View style={styles.avatarCircle}>
-                        {u.profile_picture_url ? (
-                          <Image source={{ uri: u.profile_picture_url }} style={styles.avatarImg} />
-                        ) : (
-                          <Text style={styles.avatarInitial}>{avatarInitial(u)}</Text>
-                        )}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.userName} numberOfLines={1}>
-                          {u.display_name ?? u.username}
-                        </Text>
-                        <Text style={styles.userHandle}>@{u.username}</Text>
-                      </View>
-                    </TouchableOpacity>
-                    <StatusActions u={u} />
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </View>
-
-          <Text style={styles.sectionTitle}>Requests</Text>
-          {requests.length === 0 ? (
-            <Text style={styles.empty}>No pending requests.</Text>
+          ) : conversations.length === 0 ? (
+            <View style={styles.emptyChats}>
+              <Text style={styles.emptyTitle}>No chats yet</Text>
+              <Text style={styles.emptySub}>Go to Social to find people and add friends — then open a conversation here.</Text>
+            </View>
           ) : (
-            requests.map((r) => {
-              const requesterUser = r.requester;
-              const requesterId = r.requester_id ?? requesterUser?.id;
-              return (
-                <View key={r.id} style={styles.row}>
-                  <TouchableOpacity style={{ flex: 1 }} onPress={() => requesterId && router.push(`/profile/${requesterId}`)}>
-                    <Text style={styles.name}>
-                      {requesterUser?.display_name ?? requesterUser?.username ?? 'Unknown'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.smallBtn, styles.smallBtnPrimary]} onPress={() => accept(r.id)}>
-                    <Text style={styles.smallBtnTextInverse}>Accept</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => decline(r.id)}>
-                    <Text style={styles.smallBtnOutlineText}>Decline</Text>
-                  </TouchableOpacity>
-                </View>
-              );
-            })
+            <FlatList
+              data={conversations}
+              keyExtractor={(item) => item.id}
+              renderItem={renderChatRow}
+              contentContainerStyle={styles.chatList}
+              refreshing={convLoading}
+              onRefresh={() => void loadConversations()}
+            />
+          )}
+        </View>
+      ) : (
+        <ScrollView style={styles.flex1} contentContainerStyle={styles.socialScroll} keyboardShouldPersistTaps="handled">
+          {loading && (
+            <View style={styles.loading}>
+              <ActivityIndicator color={COLORS.accent} />
+            </View>
           )}
 
-          <Text style={[styles.sectionTitle, { marginTop: SPACING.lg }]}>Your friends</Text>
-          {friends.length === 0 ? (
-            <Text style={styles.empty}>No friends yet.</Text>
-          ) : (
-            friends.map((f) => {
-              const friendUser = f.users ?? f.user ?? null;
-              const friendId = f.friend_id ?? f.id;
-              return (
-                <View key={friendId} style={styles.row}>
-                  <TouchableOpacity style={{ flex: 1 }} onPress={() => router.push(`/profile/${friendId}`)}>
-                    <Text style={styles.name}>
-                      {friendUser?.display_name ?? friendUser?.username ?? friendId}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => remove(friendId)}>
-                    <Text style={styles.smallBtnOutlineText}>Remove</Text>
-                  </TouchableOpacity>
-                </View>
-              );
-            })
-          )}
-
-          {outgoing.length > 0 ? (
+          {!loading && (
             <>
-              <Text style={[styles.sectionTitle, { marginTop: SPACING.lg }]}>Requests you sent</Text>
-              {outgoing.map((r) => {
-                const addresseeUser = r.addressee;
-                const addresseeId = r.addressee_id ?? addresseeUser?.id;
-                return (
-                  <View key={r.id} style={styles.row}>
-                    <TouchableOpacity style={{ flex: 1 }} onPress={() => addresseeId && router.push(`/profile/${addresseeId}`)}>
-                      <Text style={styles.name}>
-                        {addresseeUser?.display_name ?? addresseeUser?.username ?? addresseeUser?.id ?? r.addressee_id}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => remove(r.addressee_id)}>
-                      <Text style={styles.smallBtnOutlineText}>Cancel</Text>
-                    </TouchableOpacity>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Find people</Text>
+                <View style={styles.searchRow}>
+                  <TextInput
+                    style={styles.searchInput}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    placeholder="Search by username"
+                    placeholderTextColor={COLORS.textTertiary}
+                    autoCapitalize="none"
+                    onSubmitEditing={onSearchPress}
+                  />
+                  <TouchableOpacity style={styles.searchBtn} onPress={onSearchPress} disabled={searchLoading}>
+                    {searchLoading ? (
+                      <ActivityIndicator color={COLORS.textInverse} />
+                    ) : (
+                      <Text style={styles.searchBtnText}>Search</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {searchResults.length === 0 && !searchLoading ? (
+                  <Text style={styles.empty}>Search to add friends.</Text>
+                ) : null}
+
+                {searchResults.length > 0 ? (
+                  <View style={{ marginTop: SPACING.md }}>
+                    {searchResults.map((u) => (
+                      <View key={u.id} style={styles.userRow}>
+                        <TouchableOpacity
+                          style={styles.userMain}
+                          onPress={() => router.push(`/profile/${u.id}`)}
+                          activeOpacity={0.85}
+                        >
+                          <View style={styles.avatarCircle}>
+                            {u.profile_picture_url ? (
+                              <Image source={{ uri: u.profile_picture_url }} style={styles.avatarImg} />
+                            ) : (
+                              <Text style={styles.avatarInitial}>{avatarInitial(u)}</Text>
+                            )}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.userName} numberOfLines={1}>
+                              {u.display_name ?? u.username}
+                            </Text>
+                            <Text style={styles.userHandle}>@{u.username}</Text>
+                          </View>
+                        </TouchableOpacity>
+                        <StatusActions u={u} />
+                      </View>
+                    ))}
                   </View>
-                );
-              })}
+                ) : null}
+              </View>
+
+              <TouchableOpacity style={styles.pendingHeader} onPress={togglePending} activeOpacity={0.8}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pendingTitle}>Requests</Text>
+                  <Text style={styles.pendingSub}>Incoming & sent</Text>
+                </View>
+                {pendingTotal > 0 ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{pendingTotal > 99 ? '99+' : pendingTotal}</Text>
+                  </View>
+                ) : null}
+                <Text style={styles.chevron}>{pendingOpen ? '▼' : '▶'}</Text>
+              </TouchableOpacity>
+
+              {pendingOpen && (
+                <View style={styles.pendingBody}>
+                  <Text style={styles.miniHeading}>Incoming</Text>
+                  {requests.length === 0 ? (
+                    <Text style={styles.emptySmall}>None</Text>
+                  ) : (
+                    requests.map((r) => {
+                      const requesterUser = r.requester;
+                      const requesterId = r.requester_id ?? requesterUser?.id;
+                      return (
+                        <View key={r.id} style={styles.row}>
+                          <TouchableOpacity style={{ flex: 1 }} onPress={() => requesterId && router.push(`/profile/${requesterId}`)}>
+                            <Text style={styles.name}>
+                              {requesterUser?.display_name ?? requesterUser?.username ?? 'Unknown'}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.smallBtn, styles.smallBtnPrimary]} onPress={() => accept(r.id)}>
+                            <Text style={styles.smallBtnTextInverse}>Accept</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => decline(r.id)}>
+                            <Text style={styles.smallBtnOutlineText}>Decline</Text>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })
+                  )}
+
+                  <Text style={[styles.miniHeading, { marginTop: SPACING.md }]}>Sent</Text>
+                  {outgoing.length === 0 ? (
+                    <Text style={styles.emptySmall}>None</Text>
+                  ) : (
+                    outgoing.map((r) => {
+                      const addresseeUser = r.addressee;
+                      const addresseeId = r.addressee_id ?? addresseeUser?.id;
+                      return (
+                        <View key={r.id} style={styles.row}>
+                          <TouchableOpacity style={{ flex: 1 }} onPress={() => addresseeId && router.push(`/profile/${addresseeId}`)}>
+                            <Text style={styles.name}>
+                              {addresseeUser?.display_name ?? addresseeUser?.username ?? addresseeUser?.id ?? r.addressee_id}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => remove(r.addressee_id)}>
+                            <Text style={styles.smallBtnOutlineText}>Cancel</Text>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              )}
+
+              <Text style={styles.sectionTitle}>Friends</Text>
+              {friends.length === 0 ? (
+                <Text style={styles.empty}>No friends yet.</Text>
+              ) : (
+                friends.map((f) => {
+                  const friendUser = f.users ?? f.user ?? null;
+                  const friendId = f.friend_id ?? f.id;
+                  return (
+                    <View key={friendId} style={styles.row}>
+                      <TouchableOpacity style={{ flex: 1 }} onPress={() => router.push(`/profile/${friendId}`)}>
+                        <Text style={styles.name}>
+                          {friendUser?.display_name ?? friendUser?.username ?? friendId}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => remove(friendId)}>
+                        <Text style={styles.smallBtnOutlineText}>Remove</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })
+              )}
             </>
-          ) : null}
-        </>
+          )}
+        </ScrollView>
       )}
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg },
-  content: { padding: SPACING.base, paddingBottom: SPACING.xl },
-  header: {
+  screen: { flex: 1, backgroundColor: COLORS.bg },
+  flex1: { flex: 1 },
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 56,
-    marginBottom: SPACING.lg,
+    paddingHorizontal: SPACING.base,
+    marginBottom: SPACING.sm,
   },
-  title: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.lg },
-  headerLink: { backgroundColor: COLORS.bgElevated, borderWidth: 1, borderColor: COLORS.border, borderRadius: RADIUS.md, paddingHorizontal: 12, paddingVertical: 8 },
+  title: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.xl },
+  headerLink: {
+    backgroundColor: COLORS.bgElevated,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
   headerLinkText: { color: COLORS.textSecondary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.xs },
 
-  loading: { paddingVertical: SPACING.xl },
+  segmentRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.base,
+    marginBottom: SPACING.md,
+  },
+  segmentPill: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  segmentPillActive: {
+    backgroundColor: COLORS.accentMuted,
+    borderColor: COLORS.accent,
+  },
+  segmentText: { color: COLORS.textSecondary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.sm },
+  segmentTextActive: { color: COLORS.accent },
+
+  chatList: { paddingHorizontal: SPACING.base, paddingBottom: 120 },
+  chatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.borderSubtle,
+  },
+  chatMid: { flex: 1, minWidth: 0 },
+  chatName: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.md },
+  chatPreview: { color: COLORS.textTertiary, fontSize: FONTS.sizes.sm, marginTop: 2 },
+  chatTime: { color: COLORS.textTertiary, fontSize: FONTS.sizes.xs, marginLeft: 4 },
+
+  centerPad: { paddingVertical: SPACING.xl, alignItems: 'center' },
+  emptyChats: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.xxl, alignItems: 'center' },
+  emptyTitle: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.lg, marginBottom: SPACING.sm },
+  emptySub: { color: COLORS.textSecondary, textAlign: 'center', lineHeight: 22 },
+
+  socialScroll: { paddingHorizontal: SPACING.base, paddingBottom: 120 },
+
+  loading: { paddingVertical: SPACING.md },
 
   card: {
     backgroundColor: COLORS.bgCard,
@@ -363,7 +556,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     padding: SPACING.base,
-    marginTop: SPACING.md,
+    marginBottom: SPACING.md,
   },
   cardTitle: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.md },
 
@@ -378,10 +571,49 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
     color: COLORS.textPrimary,
   },
-  searchBtn: { backgroundColor: COLORS.accent, borderRadius: RADIUS.md, paddingVertical: 12, paddingHorizontal: SPACING.md, minWidth: 92, justifyContent: 'center', alignItems: 'center' },
+  searchBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingVertical: 12,
+    paddingHorizontal: SPACING.md,
+    minWidth: 92,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   searchBtnText: { color: COLORS.textInverse, fontWeight: FONTS.weights.bold },
 
   empty: { color: COLORS.textTertiary, marginTop: SPACING.sm },
+  emptySmall: { color: COLORS.textTertiary, fontSize: FONTS.sizes.sm, marginBottom: SPACING.sm },
+
+  pendingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  pendingTitle: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.md },
+  pendingSub: { color: COLORS.textTertiary, fontSize: FONTS.sizes.xs, marginTop: 2 },
+  pendingBody: {
+    marginBottom: SPACING.lg,
+    paddingLeft: SPACING.xs,
+  },
+  miniHeading: { color: COLORS.textSecondary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.xs, textTransform: 'uppercase', letterSpacing: 0.6 },
+  chevron: { color: COLORS.textTertiary, fontSize: 14, marginLeft: 8 },
+  badge: {
+    backgroundColor: COLORS.error,
+    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.sm,
+  },
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: FONTS.weights.bold },
 
   userRow: {
     flexDirection: 'row',
@@ -406,7 +638,7 @@ const styles = StyleSheet.create({
   userName: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, flexShrink: 1 },
   userHandle: { color: COLORS.textTertiary, fontSize: FONTS.sizes.xs, marginTop: 2 },
 
-  sectionTitle: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.md, marginTop: SPACING.lg },
+  sectionTitle: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.md, marginTop: SPACING.md, marginBottom: SPACING.sm },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -425,4 +657,3 @@ const styles = StyleSheet.create({
   smallBtnOutlineText: { color: COLORS.textSecondary, fontWeight: FONTS.weights.medium },
   smallBtnTextDisabled: { color: COLORS.textTertiary, fontWeight: FONTS.weights.medium },
 });
-

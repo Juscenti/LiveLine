@@ -36,6 +36,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.friendships;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.post_likes;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.post_comments;
 
+-- DMs: new messages (requires core/10_messages.sql applied before this runs)
+ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+
 -- ----------------------------------------------------------------
 -- Presence channels are managed by Supabase Realtime natively.
 -- The following comment documents the intended channel layout

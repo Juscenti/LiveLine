@@ -41,7 +41,7 @@ const SPRING_PRESS = { friction: 6, tension: 280, useNativeDriver: true as const
 
 const IONICON_NAMES = {
   feed: { outline: 'home-outline' as const, solid: 'home' as const },
-  friends: { outline: 'people-outline' as const, solid: 'people' as const },
+  friends: { outline: 'chatbubbles-outline' as const, solid: 'chatbubbles' as const },
   map: { outline: 'map-outline' as const, solid: 'map' as const },
   notifications: { outline: 'notifications-outline' as const, solid: 'notifications' as const },
 } as const;

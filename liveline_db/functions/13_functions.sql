@@ -375,3 +375,88 @@ BEGIN
     ORDER BY distance_meters ASC;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+-- ----------------------------------------------------------------
+-- Direct messages: lookup or create 1:1 conversation (friends only)
+-- Call from app via supabase.rpc('get_or_create_direct_conversation', { p_other_user_id })
+-- ----------------------------------------------------------------
+CREATE OR REPLACE FUNCTION direct_conversation_id(p_user_a UUID, p_user_b UUID)
+RETURNS UUID AS $$
+DECLARE
+    v_lower UUID;
+    v_higher UUID;
+    v_id UUID;
+BEGIN
+    IF p_user_a = p_user_b THEN
+        RAISE EXCEPTION 'invalid pair';
+    END IF;
+    IF p_user_a < p_user_b THEN
+        v_lower := p_user_a;
+        v_higher := p_user_b;
+    ELSE
+        v_lower := p_user_b;
+        v_higher := p_user_a;
+    END IF;
+
+    SELECT id INTO v_id
+    FROM public.direct_conversations
+    WHERE lower_user_id = v_lower AND higher_user_id = v_higher;
+
+    RETURN v_id;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION get_or_create_direct_conversation(p_other_user_id UUID)
+RETURNS UUID AS $$
+DECLARE
+    v_me UUID;
+    v_lower UUID;
+    v_higher UUID;
+    v_id UUID;
+BEGIN
+    IF p_other_user_id IS NULL THEN
+        RAISE EXCEPTION 'other user required';
+    END IF;
+
+    SELECT id INTO v_me FROM public.users WHERE auth_id = auth.uid();
+    IF v_me IS NULL THEN
+        RAISE EXCEPTION 'not authenticated';
+    END IF;
+    IF p_other_user_id = v_me THEN
+        RAISE EXCEPTION 'invalid pair';
+    END IF;
+
+    IF v_me < p_other_user_id THEN
+        v_lower := v_me;
+        v_higher := p_other_user_id;
+    ELSE
+        v_lower := p_other_user_id;
+        v_higher := v_me;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM public.v_friends vf
+        WHERE (vf.user_id = v_lower AND vf.friend_id = v_higher)
+           OR (vf.user_id = v_higher AND vf.friend_id = v_lower)
+    ) THEN
+        RAISE EXCEPTION 'not friends';
+    END IF;
+
+    SELECT id INTO v_id
+    FROM public.direct_conversations
+    WHERE lower_user_id = v_lower AND higher_user_id = v_higher;
+
+    IF v_id IS NOT NULL THEN
+        RETURN v_id;
+    END IF;
+
+    INSERT INTO public.direct_conversations (lower_user_id, higher_user_id)
+    VALUES (v_lower, v_higher)
+    RETURNING id INTO v_id;
+
+    RETURN v_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.direct_conversation_id(UUID, UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_or_create_direct_conversation(UUID) TO authenticated, service_role;

@@ -229,3 +229,75 @@ ALTER TABLE public.interests ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "interests: public read"
     ON public.interests FOR SELECT
     USING (TRUE);
+
+-- ----------------------------------------------------------------
+-- DIRECT CONVERSATIONS (1:1 DMs — friends only)
+-- ----------------------------------------------------------------
+ALTER TABLE public.direct_conversations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "direct_conversations: participants read"
+    ON public.direct_conversations FOR SELECT
+    USING (
+        lower_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+        OR higher_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+    );
+
+-- Create thread only if the two users are accepted friends and caller is one of them
+CREATE POLICY "direct_conversations: friends can create"
+    ON public.direct_conversations FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.v_friends vf
+            WHERE
+                (vf.user_id = lower_user_id AND vf.friend_id = higher_user_id)
+                OR (vf.user_id = higher_user_id AND vf.friend_id = lower_user_id)
+        )
+        AND (
+            lower_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+            OR higher_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "direct_conversations: participants delete"
+    ON public.direct_conversations FOR DELETE
+    USING (
+        lower_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+        OR higher_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+    );
+
+-- ----------------------------------------------------------------
+-- MESSAGES
+-- ----------------------------------------------------------------
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "messages: participants read"
+    ON public.messages FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.direct_conversations dc
+            WHERE dc.id = messages.conversation_id
+              AND (
+                  dc.lower_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+                  OR dc.higher_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+              )
+        )
+    );
+
+CREATE POLICY "messages: participant sender insert"
+    ON public.messages FOR INSERT
+    WITH CHECK (
+        sender_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+        AND EXISTS (
+            SELECT 1 FROM public.direct_conversations dc
+            WHERE dc.id = messages.conversation_id
+              AND (dc.lower_user_id = sender_id OR dc.higher_user_id = sender_id)
+        )
+    );
+
+CREATE POLICY "messages: sender update"
+    ON public.messages FOR UPDATE
+    USING (sender_id = (SELECT id FROM public.users WHERE auth_id = auth.uid()));
+
+CREATE POLICY "messages: sender delete"
+    ON public.messages FOR DELETE
+    USING (sender_id = (SELECT id FROM public.users WHERE auth_id = auth.uid()));

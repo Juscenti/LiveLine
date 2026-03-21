@@ -14,11 +14,12 @@
 --   07  Locations         — live map with PostGIS
 --   08  Notifications     — in-app alerts + push tokens
 --   09  Media             — upload tracking + FFmpeg job queue
---   10  Realtime          — Supabase publication config
---   11  RLS               — row-level security for every table
---   12  Storage           — bucket definitions + policies
---   13  Functions         — business logic, triggers, RPC helpers
---   14  Seed              — interests data + optional dev fixtures
+--   10  Messages          — direct messages (text + images)
+--   11  Realtime          — Supabase publication config
+--   12  RLS               — row-level security for every table
+--   13  Storage           — bucket definitions + policies
+--   14  Functions         — business logic, triggers, RPC helpers
+--   15  Seed              — interests data + optional dev fixtures
 --
 -- Run via psql:
 --   psql "$DATABASE_URL" -f 00_run_all.sql
@@ -36,6 +37,7 @@
 \ir core/07_locations.sql
 \ir core/08_notifications.sql
 \ir core/09_media.sql
+\ir core/10_messages.sql
 \ir realtime/10_realtime.sql
 \ir security/11_rls.sql
 \ir storage/12_storage.sql

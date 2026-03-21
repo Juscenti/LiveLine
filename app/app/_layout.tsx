@@ -35,6 +35,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="camera" options={{ presentation: 'fullScreenModal' }} />
           <Stack.Screen name="post/[id]" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="messages/[conversationId]" />
           <Stack.Screen name="profile/[id]" />
           <Stack.Screen name="profile/edit" />
           <Stack.Screen name="settings" />

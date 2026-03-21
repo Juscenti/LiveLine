@@ -43,31 +43,44 @@ export const useMapStore = create<MapState>((set, get) => ({
     const granted = await get().requestPermission();
     if (!granted) return;
 
-    // Initial position
-    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    let pos: Location.LocationObject;
+    try {
+      pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    } catch {
+      // Simulator / disabled location services / timeout — avoid uncaught promise rejection.
+      set({ isTracking: false, myLocation: null });
+      return;
+    }
+
     const { latitude, longitude } = pos.coords;
     set({ myLocation: { latitude, longitude }, isTracking: true });
 
-    // Throttled server push
     const push = async () => {
       const loc = get().myLocation;
       if (!loc) return;
-      await mapApi.updateLocation({ latitude: loc.latitude, longitude: loc.longitude });
-      await get().refreshNearby();
+      try {
+        await mapApi.updateLocation({ latitude: loc.latitude, longitude: loc.longitude });
+        await get().refreshNearby();
+      } catch {
+        // Network / server — non-fatal for map UX
+      }
     };
 
     await push();
     if (updateTimer) clearInterval(updateTimer);
     updateTimer = setInterval(push, MAP.UPDATE_INTERVAL_MS);
 
-    // Watch device location
-    const sub = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
-      (pos) => {
-        set({ myLocation: { latitude: pos.coords.latitude, longitude: pos.coords.longitude } });
-      }
-    );
-    set({ watchSubscription: sub });
+    try {
+      const sub = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
+        (p) => {
+          set({ myLocation: { latitude: p.coords.latitude, longitude: p.coords.longitude } });
+        }
+      );
+      set({ watchSubscription: sub });
+    } catch {
+      set({ isTracking: false });
+    }
   },
 
   stopTracking: () => {

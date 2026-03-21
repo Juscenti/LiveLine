@@ -129,3 +129,57 @@ CREATE POLICY "posts-processed: public read"
 CREATE POLICY "thumbnails: public read"
     ON storage.objects FOR SELECT
     USING (bucket_id = 'thumbnails');
+
+-- ----------------------------------------------------------------
+-- Message images (DM attachments)
+-- Path layout: {conversation_id}/{user_id}/{filename}
+-- ----------------------------------------------------------------
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+    'message-images',
+    'message-images',
+    TRUE,
+    15728640,  -- 15 MB
+    ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Participants in the conversation can read objects in that folder
+CREATE POLICY "message-images: participant read"
+    ON storage.objects FOR SELECT
+    USING (
+        bucket_id = 'message-images'
+        AND EXISTS (
+            SELECT 1
+            FROM public.direct_conversations dc
+            WHERE dc.id::text = (storage.foldername(name))[1]
+              AND (
+                  dc.lower_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+                  OR dc.higher_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+              )
+        )
+    );
+
+-- Sender uploads under their user_id segment; must be a participant of the conversation
+CREATE POLICY "message-images: participant upload"
+    ON storage.objects FOR INSERT
+    WITH CHECK (
+        bucket_id = 'message-images'
+        AND (storage.foldername(name))[2] = (SELECT id::text FROM public.users WHERE auth_id = auth.uid())
+        AND EXISTS (
+            SELECT 1
+            FROM public.direct_conversations dc
+            WHERE dc.id::text = (storage.foldername(name))[1]
+              AND (
+                  dc.lower_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+                  OR dc.higher_user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid())
+              )
+        )
+    );
+
+CREATE POLICY "message-images: owner delete"
+    ON storage.objects FOR DELETE
+    USING (
+        bucket_id = 'message-images'
+        AND (storage.foldername(name))[2] = (SELECT id::text FROM public.users WHERE auth_id = auth.uid())
+    );
