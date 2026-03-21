@@ -22,9 +22,12 @@ export interface Post {
   id: string;
   user_id: string;
   media_url: string;
-  media_type: 'image' | 'video';
-  thumbnail_url: string | null;
-  duration_sec: number | null;
+    media_type: 'image' | 'video';
+    thumbnail_url: string | null;
+    /** Processed media pixel size (for masonry); omit/null on legacy posts */
+    media_width?: number | null;
+    media_height?: number | null;
+    duration_sec: number | null;
   caption: string | null;
   music_id: string | null;
   visibility: VisibilityLevel;

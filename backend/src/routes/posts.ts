@@ -67,11 +67,8 @@ export async function createPost(req: AuthRequest, res: Response) {
 
   const mediaType = file.mimetype.startsWith('video/') ? 'video' : 'image';
 
-  const { mediaUrl, thumbnailUrl, durationSec } = await mediaService.processAndUpload(
-    file as any,
-    req.userId!,
-    mediaType,
-  );
+  const { mediaUrl, thumbnailUrl, durationSec, mediaWidth, mediaHeight } =
+    await mediaService.processAndUpload(file as any, req.userId!, mediaType);
 
   const { data, error } = await supabaseAdmin
     .from('posts')
@@ -81,6 +78,8 @@ export async function createPost(req: AuthRequest, res: Response) {
       media_type: mediaType,
       thumbnail_url: thumbnailUrl,
       duration_sec: durationSec,
+      media_width: mediaWidth,
+      media_height: mediaHeight,
       caption: caption ?? null,
       visibility,
       music_id: music_id ?? null,

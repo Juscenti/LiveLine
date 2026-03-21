@@ -21,7 +21,13 @@ export default function CameraScreen() {
   const [facing, setFacing] = useState<CameraType>('back');
   const [isRecording, setIsRecording] = useState(false);
   const [caption, setCaption] = useState('');
-  const [preview, setPreview] = useState<{ uri: string; type: 'image' | 'video' } | null>(null);
+  const [preview, setPreview] = useState<{
+    uri: string;
+    type: 'image' | 'video';
+    /** Client-reported dimensions (optional; server uses processed image size). */
+    width?: number;
+    height?: number;
+  } | null>(null);
   const [uploading, setUploading] = useState(false);
   const { prependPost } = useFeedStore();
 
@@ -36,7 +42,14 @@ export default function CameraScreen() {
 
   const takePicture = async () => {
     const photo = await cameraRef.current?.takePictureAsync({ quality: 0.8 });
-    if (photo) setPreview({ uri: photo.uri, type: 'image' });
+    if (photo) {
+      setPreview({
+        uri: photo.uri,
+        type: 'image',
+        width: photo.width,
+        height: photo.height,
+      });
+    }
   };
 
   const startRecording = async () => {
@@ -60,7 +73,12 @@ export default function CameraScreen() {
     const result = await ImagePicker.launchImageLibraryAsync(options);
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      setPreview({ uri: asset.uri, type: asset.type === 'video' ? 'video' : 'image' });
+      setPreview({
+        uri: asset.uri,
+        type: asset.type === 'video' ? 'video' : 'image',
+        width: asset.width,
+        height: asset.height,
+      });
     }
   };
 
@@ -76,6 +94,10 @@ export default function CameraScreen() {
       } as any);
       form.append('media_type', preview.type);
       if (caption) form.append('caption', caption);
+      if (preview.width != null && preview.height != null) {
+        form.append('client_media_width', String(preview.width));
+        form.append('client_media_height', String(preview.height));
+      }
 
       const { data } = await postsApi.create(form);
       prependPost(data.data);

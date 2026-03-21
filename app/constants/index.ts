@@ -38,6 +38,11 @@ export const COLORS = {
   spotify: '#1DB954',
   appleMusic: '#FC3C44',
   soundcloud: '#FF5500',
+
+  // Floating bottom tab bar (pill dock) — 50% transparent bar + softer active pill
+  tabBarPill: 'rgba(52, 53, 54, 0.5)',
+  tabBarPillActive: 'rgba(92, 94, 96, 0.55)',
+  tabBarIcon: '#FFFFFF',
 };
 
 export const FONTS = {
@@ -91,6 +96,20 @@ export const POST = {
   MAX_IMAGE_SIZE_MB: 10,
   EXPIRY_HOURS: 24,
   GRID_COLUMNS: 2,
+};
+
+/** Pinterest-style feed masonry */
+export const FEED = {
+  /** Pure black feed background */
+  background: '#000000',
+  /** Gap between columns and vertical stack */
+  gutter: 9,
+  /** Corner radius on media tiles */
+  tileRadius: 22,
+  /** When media_width/height missing (legacy posts) */
+  fallbackAspect: 4 / 5,
+  /** Space below image for username row */
+  footerMinHeight: 30,
 };
 
 export const MAP = {

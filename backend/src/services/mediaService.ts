@@ -10,23 +10,42 @@ type MulterFile = {
   originalname: string;
 };
 
+export type ProcessedMedia = {
+  mediaUrl: string;
+  thumbnailUrl: string | null;
+  durationSec: number | null;
+  mediaWidth: number | null;
+  mediaHeight: number | null;
+};
+
+/** Placeholder 9:16 frame for video until FFmpeg extracts real dimensions. */
+const VIDEO_PLACEHOLDER_W = 1080;
+const VIDEO_PLACEHOLDER_H = 1920;
+
 export const mediaService = {
   /**
    * MVP-friendly processing:
-   * - images: resize/compress to JPEG and also create a thumbnail
-   * - videos: upload as-is to the public bucket (thumbnail/duration TBD)
-   *
-   * This keeps the backend functional without requiring a full FFmpeg pipeline.
+   * - images: resize inside max 1080×1080 (preserves aspect), JPEG + square thumb
+   * - videos: upload as-is; dimensions placeholder for masonry layout
    */
-  async processAndUpload(file: MulterFile, userId: string, mediaType: MediaType) {
+  async processAndUpload(file: MulterFile, userId: string, mediaType: MediaType): Promise<ProcessedMedia> {
     const baseKey = `${userId}/${uuidv4()}`;
 
     if (mediaType === 'image') {
       const jpegBuffer = await sharp(file.buffer)
         .rotate()
-        .resize(1080, 1080, { fit: 'cover' })
+        .resize({
+          width: 1080,
+          height: 1080,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
         .jpeg({ quality: 82 })
         .toBuffer();
+
+      const meta = await sharp(jpegBuffer).metadata();
+      const mediaWidth = meta.width ?? null;
+      const mediaHeight = meta.height ?? null;
 
       const thumbBuffer = await sharp(jpegBuffer)
         .resize(360, 360, { fit: 'cover' })
@@ -49,13 +68,12 @@ export const mediaService = {
       return {
         mediaUrl: mediaPublic.publicUrl,
         thumbnailUrl: thumbPublic.publicUrl,
-        durationSec: null as number | null,
+        durationSec: null,
+        mediaWidth,
+        mediaHeight,
       };
     }
 
-    // video
-    // Storage bucket only whitelists `video/mp4`, so we store with an mp4 key/content-type.
-    // (If your input isn't mp4, playback may be imperfect, but upload will succeed.)
     const mediaKey = `${baseKey}.mp4`;
 
     await supabaseAdmin.storage
@@ -66,10 +84,10 @@ export const mediaService = {
 
     return {
       mediaUrl: mediaPublic.publicUrl,
-      thumbnailUrl: null as string | null,
-      // We don't run FFmpeg in this MVP-first backend implementation.
+      thumbnailUrl: null,
       durationSec: 5,
+      mediaWidth: VIDEO_PLACEHOLDER_W,
+      mediaHeight: VIDEO_PLACEHOLDER_H,
     };
   },
 };
-
