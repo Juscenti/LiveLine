@@ -50,13 +50,63 @@ api.interceptors.request.use(async (config) => {
     if (session?.access_token) {
       setAccessToken(session.access_token);
       config.headers.Authorization = `Bearer ${session.access_token}`;
+      // #region agent log
+      fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
+        body: JSON.stringify({
+          sessionId: 'd26f09',
+          hypothesisId: 'H4',
+          location: 'services/api.ts:interceptor',
+          message: 'axios auth attach',
+          data: {
+            url: config.url,
+            source: 'supabase_session',
+            tokenLen: session.access_token.length,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       return config;
     }
     const token = getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
+    // #region agent log
+    fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
+      body: JSON.stringify({
+        sessionId: 'd26f09',
+        hypothesisId: 'H4',
+        location: 'services/api.ts:interceptor',
+        message: 'axios auth attach',
+        data: {
+          url: config.url,
+          source: 'memory_fallback',
+          tokenLen: token?.length ?? 0,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
   } catch {
     const token = getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
+    // #region agent log
+    fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
+      body: JSON.stringify({
+        sessionId: 'd26f09',
+        hypothesisId: 'H4',
+        location: 'services/api.ts:interceptor',
+        message: 'axios auth attach catch',
+        data: { url: config.url, tokenLen: token?.length ?? 0 },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
   }
 
   return config;

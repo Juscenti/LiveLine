@@ -91,9 +91,50 @@ router.get('/outgoing', requireAuth, async (req: AuthRequest, res: Response) => 
   return res.json({ data, error: null });
 });
 
+// Incoming friend requests (must be registered BEFORE /status/:userId or "requests" is captured as a userId).
+router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => {
+  // #region agent log
+  fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
+    body: JSON.stringify({
+      sessionId: 'd26f09',
+      hypothesisId: 'H5',
+      location: 'routes/friends.ts:GET/requests',
+      message: 'friends incoming-requests route hit',
+      data: { ok: true },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+  const db = createSupabaseUserClient(req.accessToken!);
+  const { data, error } = await db
+    .from('friendships')
+    .select('*, requester:users!requester_id(id, username, display_name, profile_picture_url)')
+    .eq('addressee_id', req.userId)
+    .eq('status', 'pending');
+
+  if (error) return res.status(500).json({ error: error.message, data: null });
+  return res.json({ data, error: null });
+});
+
 // Relationship status between me and a target user.
 // Returns: none | accepted | pending_incoming | pending_outgoing | declined | blocked
 router.get('/status/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
+  // #region agent log
+  fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
+    body: JSON.stringify({
+      sessionId: 'd26f09',
+      hypothesisId: 'H5',
+      location: 'routes/friends.ts:GET/status/:userId',
+      message: 'friends status route hit',
+      data: { userIdParam: req.params.userId, isRequestsLiteral: req.params.userId === 'requests' },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   const parsed = uuidSchema.safeParse(req.params.userId);
   if (!parsed.success) return badUuid(res);
   const targetId = parsed.data;
@@ -124,18 +165,6 @@ router.get('/status/:userId', requireAuth, async (req: AuthRequest, res: Respons
   }
 
   return res.json({ data: { status: normalizeStatus(status), friendshipId: data.id }, error: null });
-});
-
-router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => {
-  const db = createSupabaseUserClient(req.accessToken!);
-  const { data, error } = await db
-    .from('friendships')
-    .select('*, requester:users!requester_id(id, username, display_name, profile_picture_url)')
-    .eq('addressee_id', req.userId)
-    .eq('status', 'pending');
-
-  if (error) return res.status(500).json({ error: error.message, data: null });
-  return res.json({ data, error: null });
 });
 
 router.post('/request/:userId', requireAuth, async (req: AuthRequest, res: Response) => {

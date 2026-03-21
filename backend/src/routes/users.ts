@@ -22,6 +22,18 @@ router.get('/search', requireAuth, async (req: AuthRequest, res: Response) => {
   return res.json({ data, error: null });
 });
 
+// Current user profile — must be before /:userId or "me" is treated as a user id.
+router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('id, username, display_name, bio, profile_picture_url, banner_url, created_at')
+    .eq('id', req.userId)
+    .single();
+
+  if (error) return res.status(404).json({ error: 'User not found', data: null });
+  return res.json({ data, error: null });
+});
+
 // Get any user profile (public profile discovery is filtered by SQL/RLS)
 router.get('/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
   const { data, error } = await supabaseAdmin

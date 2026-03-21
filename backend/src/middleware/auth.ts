@@ -11,7 +11,32 @@ export interface AuthRequest extends Request {
 }
 
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const rawAuth = req.headers.authorization;
+  const token = (rawAuth?.replace(/^Bearer\s+/i, '') ?? '').trim();
+
+  // #region agent log
+  fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
+    body: JSON.stringify({
+      sessionId: 'd26f09',
+      hypothesisId: 'H2',
+      location: 'middleware/auth.ts:requireAuth:entry',
+      message: 'requireAuth entry',
+      data: {
+        method: req.method,
+        path: req.path,
+        baseUrl: req.baseUrl,
+        originalUrl: req.originalUrl,
+        userIdParam: (req.params as { userId?: string })?.userId,
+        hasAuthHeader: !!rawAuth,
+        tokenLen: token?.length ?? 0,
+        bearerSchemeLooksLower: /^bearer\s/i.test(rawAuth ?? '') && !rawAuth?.startsWith('Bearer '),
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized', data: null });
@@ -20,6 +45,25 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   try {
     // Verify JWT via Supabase
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+    // #region agent log
+    fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
+      body: JSON.stringify({
+        sessionId: 'd26f09',
+        hypothesisId: 'H1',
+        location: 'middleware/auth.ts:requireAuth:afterGetUser',
+        message: 'getUser result',
+        data: {
+          path: req.path,
+          getUserErr: error?.message ?? null,
+          hasUser: !!user,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
 
     if (error || !user) {
       return res.status(401).json({ error: 'Invalid token', data: null });
@@ -31,6 +75,25 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
       .select('id')
       .eq('auth_id', user.id)
       .single();
+
+    // #region agent log
+    fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
+      body: JSON.stringify({
+        sessionId: 'd26f09',
+        hypothesisId: 'H3',
+        location: 'middleware/auth.ts:requireAuth:afterProfile',
+        message: 'profile lookup',
+        data: {
+          path: req.path,
+          profileErr: profileErr?.message ?? null,
+          hasProfile: !!profile,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
 
     if (profileErr || !profile) {
       return res.status(401).json({ error: 'User profile not found', data: null });
