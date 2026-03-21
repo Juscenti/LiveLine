@@ -100,3 +100,63 @@ export async function loadConversationList(): Promise<ConversationListItem[]> {
     return [];
   }
 }
+
+export type ConversationPeer = {
+  id: string;
+  username: string;
+  display_name: string | null;
+  profile_picture_url: string | null;
+};
+
+/** Other participant in a 1:1 thread (for chat header). */
+export async function loadConversationPeer(conversationId: string): Promise<ConversationPeer | null> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return null;
+
+    const { data: me, error: meErr } = await supabase
+      .from('users')
+      .select('id')
+      .eq('auth_id', session.user.id)
+      .maybeSingle();
+
+    if (meErr || !me) return null;
+    const myId = me.id as string;
+
+    const { data: conv, error: convErr } = await supabase
+      .from('direct_conversations')
+      .select('lower_user_id, higher_user_id')
+      .eq('id', conversationId)
+      .maybeSingle();
+
+    if (convErr || !conv) return null;
+
+    const lower = conv.lower_user_id as string;
+    const higher = conv.higher_user_id as string;
+    const otherId = lower === myId ? higher : lower;
+
+    const { data: u, error: uErr } = await supabase
+      .from('users')
+      .select('id, username, display_name, profile_picture_url')
+      .eq('id', otherId)
+      .maybeSingle();
+
+    if (uErr || !u) return null;
+    return u as ConversationPeer;
+  } catch {
+    return null;
+  }
+}
+
+/** Opens or creates a DM with a friend (RPC enforces friendship). */
+export async function getOrCreateDirectConversation(otherUserId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.rpc('get_or_create_direct_conversation', {
+      p_other_user_id: otherUserId,
+    });
+    if (error || data == null) return null;
+    return data as string;
+  } catch {
+    return null;
+  }
+}

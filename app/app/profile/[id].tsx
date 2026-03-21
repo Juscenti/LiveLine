@@ -1,59 +1,131 @@
 // ============================================================
 // app/profile/[id].tsx — Public user profile
 // ============================================================
-import { useEffect, useState } from 'react';
-import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Image, ActivityIndicator, Alert,
-} from 'react-native';
+import { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usersApi, postsApi, friendsApi } from '@/services/api';
+import { getOrCreateDirectConversation } from '@/services/conversations';
 import { useAuthStore } from '@/stores/authStore';
-import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
-import MusicBadge from '@/components/music/MusicBadge';
+import { COLORS, SPACING, FONTS } from '@/constants';
 import PostThumb from '@/components/feed/PostThumb';
+import { AppHeader, PillButton, UserAvatar, UserNameBlock } from '@/components/shared';
+import { formatApiError } from '@/utils/apiErrors';
 import type { User, Post } from '@/types';
+
+type RelStatus =
+  | 'none'
+  | 'accepted'
+  | 'pending_incoming'
+  | 'pending_outgoing'
+  | 'declined'
+  | 'blocked';
 
 export default function PublicProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user: me } = useAuthStore();
+  const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [friendStatus, setFriendStatus] = useState<'none' | 'pending' | 'accepted'>('none');
   const [loading, setLoading] = useState(true);
+  const [rel, setRel] = useState<{ status: RelStatus; friendshipId: string | null }>({
+    status: 'none',
+    friendshipId: null,
+  });
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const isMe = me?.id === id;
 
   useEffect(() => {
     if (!id) return;
-    Promise.all([
-      usersApi.getProfile(id),
-      postsApi.getUserPosts(id),
-    ]).then(([profileRes, postsRes]) => {
-      setProfile(profileRes.data.data);
-      setPosts(postsRes.data.data);
-    }).finally(() => setLoading(false));
+    Promise.all([usersApi.getProfile(id), postsApi.getUserPosts(id)])
+      .then(([profileRes, postsRes]) => {
+        setProfile(profileRes.data.data);
+        setPosts(postsRes.data.data);
+      })
+      .finally(() => setLoading(false));
   }, [id]);
 
-  const handleFriendAction = async () => {
+  const loadRelationship = useCallback(async () => {
+    if (!id || isMe) return;
+    try {
+      const r = await friendsApi.getStatus(id);
+      const d = r.data.data ?? r.data;
+      setRel({
+        status: (d?.status as RelStatus) ?? 'none',
+        friendshipId: d?.friendshipId ?? null,
+      });
+    } catch {
+      setRel({ status: 'none', friendshipId: null });
+    }
+  }, [id, isMe]);
+
+  useEffect(() => {
+    void loadRelationship();
+  }, [loadRelationship]);
+
+  const openChat = async () => {
+    if (!id) return;
+    setChatLoading(true);
+    try {
+      const convId = await getOrCreateDirectConversation(id);
+      if (convId) router.push(`/messages/${convId}`);
+      else {
+        Alert.alert('Could not open chat', 'You must be friends to message.');
+      }
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const sendRequest = async () => {
     if (!id) return;
     try {
-      if (friendStatus === 'none') {
-        await friendsApi.sendRequest(id);
-        setFriendStatus('pending');
-      } else if (friendStatus === 'accepted') {
-        Alert.alert('Remove friend?', '', [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Remove', style: 'destructive',
-            onPress: async () => {
-              await friendsApi.remove(id);
-              setFriendStatus('none');
-            },
-          },
-        ]);
-      }
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
+      await friendsApi.sendRequest(id);
+      await loadRelationship();
+    } catch (e: unknown) {
+      Alert.alert('Error', formatApiError(e));
     }
+  };
+
+  const acceptIncoming = async () => {
+    if (!rel.friendshipId) return;
+    try {
+      await friendsApi.acceptRequest(rel.friendshipId);
+      await loadRelationship();
+    } catch (e: unknown) {
+      Alert.alert('Error', formatApiError(e));
+    }
+  };
+
+  const declineIncoming = async () => {
+    if (!rel.friendshipId) return;
+    try {
+      await friendsApi.declineRequest(rel.friendshipId);
+      await loadRelationship();
+    } catch (e: unknown) {
+      Alert.alert('Error', formatApiError(e));
+    }
+  };
+
+  const confirmRemove = () => {
+    if (!id) return;
+    Alert.alert('Remove friend?', '', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await friendsApi.remove(id);
+            await loadRelationship();
+          } catch (e: unknown) {
+            Alert.alert('Error', formatApiError(e));
+          }
+        },
+      },
+    ]);
   };
 
   if (loading) {
@@ -66,117 +138,118 @@ export default function PublicProfileScreen() {
 
   if (!profile) return null;
 
-  const isMe = me?.id === id;
+  const renderFriendActions = () => {
+    if (isMe) return null;
+
+    switch (rel.status) {
+      case 'accepted':
+        return (
+          <View style={styles.actionRow}>
+            <PillButton
+              label="Message"
+              onPress={() => void openChat()}
+              loading={chatLoading}
+              style={styles.actionGrow}
+            />
+            <PillButton
+              label="Friends"
+              variant="outline"
+              onPress={confirmRemove}
+              style={styles.actionGrow}
+            />
+          </View>
+        );
+      case 'pending_incoming':
+        return (
+          <View style={styles.actionRow}>
+            <PillButton label="Accept" onPress={() => void acceptIncoming()} style={styles.actionGrow} />
+            <PillButton
+              label="Decline"
+              variant="outline"
+              onPress={() => void declineIncoming()}
+              style={styles.actionGrow}
+            />
+          </View>
+        );
+      case 'pending_outgoing':
+        return <PillButton label="Requested" variant="muted" disabled />;
+      case 'blocked':
+        return <PillButton label="Blocked" variant="muted" disabled />;
+      default:
+        return <PillButton label="Add friend" onPress={() => void sendRequest()} />;
+    }
+  };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Back */}
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backBtn}>‹</Text>
-        </TouchableOpacity>
-        <Text style={styles.topUsername}>@{profile.username}</Text>
-        <View style={{ width: 32 }} />
-      </View>
-
-      {/* Banner */}
-      <View style={styles.bannerContainer}>
-        {profile.banner_url
-          ? <Image source={{ uri: profile.banner_url }} style={styles.banner} />
-          : <View style={[styles.banner, { backgroundColor: COLORS.bgElevated }]} />}
-      </View>
-
-      {/* Avatar + Action */}
-      <View style={styles.avatarRow}>
-        <View style={styles.avatarBorder}>
-          {profile.profile_picture_url
-            ? <Image source={{ uri: profile.profile_picture_url }} style={styles.avatar} />
-            : <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Text style={styles.avatarInitial}>
-                  {(profile.display_name ?? profile.username)[0].toUpperCase()}
-                </Text>
-              </View>}
+    <View style={[styles.root, { paddingBottom: insets.bottom + 24 }]}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <View style={{ paddingTop: insets.top + 8 }}>
+          <AppHeader title={`@${profile.username}`} onBack={() => router.back()} />
         </View>
-        {!isMe && (
-          <TouchableOpacity
-            style={[
-              styles.friendBtn,
-              friendStatus === 'accepted' && styles.friendBtnAccepted,
-              friendStatus === 'pending' && styles.friendBtnPending,
-            ]}
-            onPress={handleFriendAction}
-          >
-            <Text style={[
-              styles.friendBtnText,
-              friendStatus !== 'none' && styles.friendBtnTextAlt,
-            ]}>
-              {friendStatus === 'none' && 'Add friend'}
-              {friendStatus === 'pending' && 'Requested'}
-              {friendStatus === 'accepted' && 'Friends ✓'}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
 
-      {/* Info */}
-      <View style={styles.info}>
-        <Text style={styles.displayName}>{profile.display_name ?? profile.username}</Text>
-        <Text style={styles.username}>@{profile.username}</Text>
-        {profile.bio && <Text style={styles.bio}>{profile.bio}</Text>}
-      </View>
+        <View style={styles.bannerContainer}>
+          {profile.banner_url ? (
+            <Image source={{ uri: profile.banner_url }} style={styles.banner} />
+          ) : (
+            <View style={[styles.banner, { backgroundColor: COLORS.bgElevated }]} />
+          )}
+        </View>
 
-      {/* Posts grid */}
-      <View style={styles.grid}>
-        {posts.map((post) => (
-          <PostThumb
-            key={post.id}
-            post={post}
-            size={120}
-            onPress={() => router.push(`/post/${post.id}`)}
-          />
-        ))}
-        {posts.length === 0 && (
-          <Text style={styles.noPosts}>No moments yet</Text>
-        )}
-      </View>
-    </ScrollView>
+        <View style={styles.avatarRow}>
+          <UserAvatar user={profile} size="xl" bordered />
+          {!isMe ? <View style={styles.actionCol}>{renderFriendActions()}</View> : null}
+        </View>
+
+        <View style={styles.info}>
+          <UserNameBlock user={profile} variant="profile" />
+          {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
+        </View>
+
+        <View style={styles.grid}>
+          {posts.map((post) => (
+            <PostThumb
+              key={post.id}
+              post={post}
+              size={120}
+              onPress={() => router.push(`/post/${post.id}`)}
+            />
+          ))}
+          {posts.length === 0 ? <Text style={styles.noPosts}>No moments yet</Text> : null}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: COLORS.bg },
   container: { flex: 1, backgroundColor: COLORS.bg },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.bg },
-  topBar: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: 56, paddingHorizontal: SPACING.base, paddingBottom: SPACING.sm,
-  },
-  backBtn: { color: COLORS.textPrimary, fontSize: 28 },
-  topUsername: { color: COLORS.textPrimary, fontSize: FONTS.sizes.base, fontWeight: FONTS.weights.semibold },
   bannerContainer: { height: 120 },
   banner: { width: '100%', height: '100%' },
   avatarRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
-    paddingHorizontal: SPACING.base, marginTop: -32,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    paddingHorizontal: SPACING.base,
+    marginTop: -36,
   },
-  avatarBorder: { borderWidth: 3, borderColor: COLORS.bg, borderRadius: 999 },
-  avatar: { width: 72, height: 72, borderRadius: 36 },
-  avatarPlaceholder: { backgroundColor: COLORS.bgElevated, justifyContent: 'center', alignItems: 'center' },
-  avatarInitial: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.lg },
-  friendBtn: {
-    backgroundColor: COLORS.accent, borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm, marginBottom: 4,
+  actionCol: { alignItems: 'flex-end', marginBottom: 4, maxWidth: '58%' },
+  actionRow: { flexDirection: 'row', gap: SPACING.sm, justifyContent: 'flex-end' },
+  actionGrow: { flex: 1, minWidth: 100 },
+  info: { paddingHorizontal: SPACING.base, paddingTop: SPACING.md, gap: SPACING.xs },
+  bio: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textPrimary,
+    marginTop: SPACING.sm,
+    lineHeight: 20,
   },
-  friendBtnAccepted: { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.border },
-  friendBtnPending: { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.border },
-  friendBtnText: { color: COLORS.textInverse, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.sm },
-  friendBtnTextAlt: { color: COLORS.textSecondary },
-  info: { paddingHorizontal: SPACING.base, paddingTop: SPACING.md, gap: 4 },
-  displayName: { fontSize: FONTS.sizes.lg, fontWeight: FONTS.weights.bold, color: COLORS.textPrimary },
-  username: { fontSize: FONTS.sizes.sm, color: COLORS.textSecondary },
-  bio: { fontSize: FONTS.sizes.sm, color: COLORS.textPrimary, marginTop: SPACING.sm, lineHeight: 20 },
   grid: {
-    flexDirection: 'row', flexWrap: 'wrap',
-    gap: SPACING.xs, padding: SPACING.base, paddingTop: SPACING.md,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
+    padding: SPACING.base,
+    paddingTop: SPACING.md,
   },
   noPosts: { color: COLORS.textTertiary, fontSize: FONTS.sizes.sm, padding: SPACING.md },
 });

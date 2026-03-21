@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
+import { formatApiError } from '@/utils/apiErrors';
 import { COLORS, FONTS, SPACING, RADIUS } from '@/constants';
 
 export default function LoginScreen() {
@@ -20,13 +21,8 @@ export default function LoginScreen() {
     try {
       await login(email.trim().toLowerCase(), password);
       router.replace('/(tabs)/feed');
-    } catch (e: any) {
-      const msg =
-        e?.response?.data?.error ??
-        e?.response?.data?.message ??
-        e?.message ??
-        'Please check your credentials.';
-      Alert.alert('Login failed', msg);
+    } catch (e: unknown) {
+      Alert.alert('Login failed', formatApiError(e));
     }
   };
 

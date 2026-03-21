@@ -3,7 +3,7 @@
 // ============================================================
 import { create } from 'zustand';
 import { supabase } from '@/services/supabase';
-import { authApi } from '@/services/api';
+import { authApi, wakeBackend } from '@/services/api';
 import { clearAccessToken, setAccessToken } from '@/services/accessTokenStore';
 import type { User } from '@/types';
 
@@ -107,6 +107,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (email: string, password: string, username: string) => {
     set({ isLoading: true });
     try {
+      await wakeBackend();
       const resp = await withTimeout(authApi.register({ email, password, username }), 30000, 'Registration');
       const session =
         resp?.data?.data?.session ??

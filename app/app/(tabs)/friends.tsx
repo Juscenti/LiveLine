@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   TextInput,
   Alert,
-  Image,
   FlatList,
   LayoutAnimation,
   Platform,
@@ -24,6 +23,9 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { friendsApi, usersApi } from '@/services/api';
 import { loadConversationList, type ConversationListItem } from '@/services/conversations';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
+import { ConversationListRow, PersonRow, PillButton } from '@/components/shared';
+import { formatApiError } from '@/utils/apiErrors';
+import type { UserLike } from '@/utils/userDisplay';
 
 dayjs.extend(relativeTime);
 
@@ -40,13 +42,6 @@ type FriendStatus =
   | 'blocked';
 
 type FriendStatusPayload = { status: FriendStatus; friendshipId: string | null };
-type AnyUser = {
-  id: string;
-  username: string;
-  display_name?: string | null;
-  profile_picture_url?: string | null;
-};
-
 type HubSegment = 'chats' | 'social';
 
 export default function FriendsTabScreen() {
@@ -63,17 +58,12 @@ export default function FriendsTabScreen() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
-  const [searchResults, setSearchResults] = useState<AnyUser[]>([]);
+  const [searchResults, setSearchResults] = useState<UserLike[]>([]);
   const [statusByUserId, setStatusByUserId] = useState<Record<string, FriendStatusPayload>>({});
 
   const [pendingOpen, setPendingOpen] = useState(true);
 
   const pendingTotal = requests.length + outgoing.length;
-
-  const avatarInitial = useCallback(
-    (u: AnyUser) => (u.display_name ?? u.username ?? '?')[0]?.toUpperCase() ?? '?',
-    [],
-  );
 
   const loadFriendsData = useCallback(async () => {
     setLoading(true);
@@ -87,9 +77,8 @@ export default function FriendsTabScreen() {
       setFriends(friendsRes.data.data ?? friendsRes.data ?? []);
       setRequests(requestsRes.data.data ?? requestsRes.data ?? []);
       setOutgoing(outgoingRes.data.data ?? outgoingRes.data ?? []);
-    } catch (e: any) {
-      const serverError = e?.response?.data?.error;
-      Alert.alert('Failed to load', serverError ?? e.message ?? 'Unknown error');
+    } catch (e: unknown) {
+      Alert.alert('Failed to load', formatApiError(e));
     } finally {
       setLoading(false);
     }
@@ -133,15 +122,15 @@ export default function FriendsTabScreen() {
   const sendRequest = async (userId: string) => {
     try {
       await friendsApi.sendRequest(userId);
-    } catch (e: any) {
-      Alert.alert('Cannot send request', e?.response?.data?.error ?? e?.message ?? 'Unknown error');
+    } catch (e: unknown) {
+      Alert.alert('Cannot send request', formatApiError(e));
     } finally {
       await loadFriendsData();
     }
   };
 
-  const fetchStatuses = useCallback(async (users: AnyUser[]) => {
-    const ids = users.map((u) => u.id).slice(0, 8);
+  const fetchStatuses = useCallback(async (users: UserLike[]) => {
+    const ids = users.map((u) => u.id).filter((x): x is string => !!x).slice(0, 8);
     const next: Record<string, FriendStatusPayload> = {};
     await Promise.all(
       ids.map(async (id) => {
@@ -168,12 +157,12 @@ export default function FriendsTabScreen() {
     setSearchLoading(true);
     try {
       const resp = await usersApi.search(q, 0);
-      const results = (resp.data.data ?? resp.data ?? []) as AnyUser[];
+      const results = (resp.data.data ?? resp.data ?? []) as UserLike[];
       const slice = results.slice(0, 10);
       setSearchResults(slice);
       await fetchStatuses(slice);
-    } catch (e: any) {
-      Alert.alert('Search failed', e.message ?? 'Unknown error');
+    } catch (e: unknown) {
+      Alert.alert('Search failed', formatApiError(e));
     } finally {
       setSearchLoading(false);
     }
@@ -189,91 +178,56 @@ export default function FriendsTabScreen() {
   };
 
   const StatusActions = useCallback(
-    ({ u }: { u: AnyUser }) => {
-      const st = statusByUserId[u.id]?.status ?? 'none';
-      const friendshipId = statusByUserId[u.id]?.friendshipId ?? null;
+    ({ u }: { u: UserLike }) => {
+      if (!u.id) return null;
+      const uid = u.id;
+      const st = statusByUserId[uid]?.status ?? 'none';
+      const friendshipId = statusByUserId[uid]?.friendshipId ?? null;
 
       if (st === 'accepted') {
-        return (
-          <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => remove(u.id)}>
-            <Text style={styles.smallBtnOutlineText}>Remove</Text>
-          </TouchableOpacity>
-        );
+        return <PillButton label="Remove" variant="outline" onPress={() => remove(uid)} />;
       }
 
       if (st === 'pending_outgoing') {
-        return (
-          <View style={[styles.smallBtn, styles.smallBtnDisabled]}>
-            <Text style={styles.smallBtnTextDisabled}>Request sent</Text>
-          </View>
-        );
+        return <PillButton label="Request sent" variant="muted" disabled />;
       }
 
       if (st === 'pending_incoming') {
         return (
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity
-              style={[styles.smallBtn, styles.smallBtnPrimary]}
+            <PillButton
+              label="Accept"
               onPress={() => friendshipId && accept(friendshipId)}
               disabled={!friendshipId}
-            >
-              <Text style={styles.smallBtnTextInverse}>Accept</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.smallBtn, styles.smallBtnOutline]}
+            />
+            <PillButton
+              label="Decline"
+              variant="outline"
               onPress={() => friendshipId && decline(friendshipId)}
               disabled={!friendshipId}
-            >
-              <Text style={styles.smallBtnOutlineText}>Decline</Text>
-            </TouchableOpacity>
+            />
           </View>
         );
       }
 
       if (st === 'blocked') {
-        return (
-          <View style={[styles.smallBtn, styles.smallBtnDisabled]}>
-            <Text style={styles.smallBtnTextDisabled}>Blocked</Text>
-          </View>
-        );
+        return <PillButton label="Blocked" variant="muted" disabled />;
       }
 
-      return (
-        <TouchableOpacity style={[styles.smallBtn, styles.smallBtnPrimary]} onPress={() => sendRequest(u.id)}>
-          <Text style={styles.smallBtnTextInverse}>Add</Text>
-        </TouchableOpacity>
-      );
+      return <PillButton label="Add" onPress={() => sendRequest(uid)} />;
     },
     [accept, decline, remove, sendRequest, statusByUserId],
   );
 
   const renderChatRow = ({ item }: { item: ConversationListItem }) => {
-    const name = item.other_user.display_name ?? item.other_user.username;
     const time = item.last_at != null ? dayjs(item.last_at).fromNow() : '';
-
     return (
-      <TouchableOpacity
-        style={styles.chatRow}
+      <ConversationListRow
+        user={item.other_user}
+        preview={item.last_preview}
+        time={time}
         onPress={() => router.push(`/messages/${item.id}`)}
-        activeOpacity={0.85}
-      >
-        <View style={styles.avatarCircle}>
-          {item.other_user.profile_picture_url ? (
-            <Image source={{ uri: item.other_user.profile_picture_url }} style={styles.avatarImg} />
-          ) : (
-            <Text style={styles.avatarInitial}>{name[0]?.toUpperCase() ?? '?'}</Text>
-          )}
-        </View>
-        <View style={styles.chatMid}>
-          <Text style={styles.chatName} numberOfLines={1}>
-            {name}
-          </Text>
-          <Text style={styles.chatPreview} numberOfLines={1}>
-            {item.last_preview}
-          </Text>
-        </View>
-        {time ? <Text style={styles.chatTime}>{time}</Text> : null}
-      </TouchableOpacity>
+      />
     );
   };
 
@@ -364,28 +318,12 @@ export default function FriendsTabScreen() {
                 {searchResults.length > 0 ? (
                   <View style={{ marginTop: SPACING.md }}>
                     {searchResults.map((u) => (
-                      <View key={u.id} style={styles.userRow}>
-                        <TouchableOpacity
-                          style={styles.userMain}
-                          onPress={() => router.push(`/profile/${u.id}`)}
-                          activeOpacity={0.85}
-                        >
-                          <View style={styles.avatarCircle}>
-                            {u.profile_picture_url ? (
-                              <Image source={{ uri: u.profile_picture_url }} style={styles.avatarImg} />
-                            ) : (
-                              <Text style={styles.avatarInitial}>{avatarInitial(u)}</Text>
-                            )}
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.userName} numberOfLines={1}>
-                              {u.display_name ?? u.username}
-                            </Text>
-                            <Text style={styles.userHandle}>@{u.username}</Text>
-                          </View>
-                        </TouchableOpacity>
-                        <StatusActions u={u} />
-                      </View>
+                      <PersonRow
+                        key={u.id as string}
+                        user={u}
+                        onPress={() => router.push(`/profile/${u.id}`)}
+                        trailing={<StatusActions u={u} />}
+                      />
                     ))}
                   </View>
                 ) : null}
@@ -413,20 +351,26 @@ export default function FriendsTabScreen() {
                     requests.map((r) => {
                       const requesterUser = r.requester;
                       const requesterId = r.requester_id ?? requesterUser?.id;
+                      const user =
+                        requesterUser && requesterUser.id
+                          ? (requesterUser as UserLike)
+                          : ({
+                              id: requesterId,
+                              username: 'unknown',
+                              display_name: 'Unknown',
+                            } as UserLike);
                       return (
-                        <View key={r.id} style={styles.row}>
-                          <TouchableOpacity style={{ flex: 1 }} onPress={() => requesterId && router.push(`/profile/${requesterId}`)}>
-                            <Text style={styles.name}>
-                              {requesterUser?.display_name ?? requesterUser?.username ?? 'Unknown'}
-                            </Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity style={[styles.smallBtn, styles.smallBtnPrimary]} onPress={() => accept(r.id)}>
-                            <Text style={styles.smallBtnTextInverse}>Accept</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => decline(r.id)}>
-                            <Text style={styles.smallBtnOutlineText}>Decline</Text>
-                          </TouchableOpacity>
-                        </View>
+                        <PersonRow
+                          key={r.id}
+                          user={user}
+                          onPress={() => requesterId && router.push(`/profile/${requesterId}`)}
+                          trailing={
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                              <PillButton label="Accept" onPress={() => accept(r.id)} />
+                              <PillButton label="Decline" variant="outline" onPress={() => decline(r.id)} />
+                            </View>
+                          }
+                        />
                       );
                     })
                   )}
@@ -438,17 +382,21 @@ export default function FriendsTabScreen() {
                     outgoing.map((r) => {
                       const addresseeUser = r.addressee;
                       const addresseeId = r.addressee_id ?? addresseeUser?.id;
+                      const user =
+                        addresseeUser && addresseeUser.id
+                          ? (addresseeUser as UserLike)
+                          : ({
+                              id: addresseeId,
+                              username: 'unknown',
+                              display_name: 'Unknown',
+                            } as UserLike);
                       return (
-                        <View key={r.id} style={styles.row}>
-                          <TouchableOpacity style={{ flex: 1 }} onPress={() => addresseeId && router.push(`/profile/${addresseeId}`)}>
-                            <Text style={styles.name}>
-                              {addresseeUser?.display_name ?? addresseeUser?.username ?? addresseeUser?.id ?? r.addressee_id}
-                            </Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => remove(r.addressee_id)}>
-                            <Text style={styles.smallBtnOutlineText}>Cancel</Text>
-                          </TouchableOpacity>
-                        </View>
+                        <PersonRow
+                          key={r.id}
+                          user={user}
+                          onPress={() => addresseeId && router.push(`/profile/${addresseeId}`)}
+                          trailing={<PillButton label="Cancel" variant="outline" onPress={() => remove(r.addressee_id)} />}
+                        />
                       );
                     })
                   )}
@@ -462,17 +410,21 @@ export default function FriendsTabScreen() {
                 friends.map((f) => {
                   const friendUser = f.users ?? f.user ?? null;
                   const friendId = f.friend_id ?? f.id;
+                  const user =
+                    friendUser && friendUser.id
+                      ? (friendUser as UserLike)
+                      : ({
+                          id: friendId,
+                          username: String(friendId),
+                          display_name: 'Friend',
+                        } as UserLike);
                   return (
-                    <View key={friendId} style={styles.row}>
-                      <TouchableOpacity style={{ flex: 1 }} onPress={() => router.push(`/profile/${friendId}`)}>
-                        <Text style={styles.name}>
-                          {friendUser?.display_name ?? friendUser?.username ?? friendId}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.smallBtn, styles.smallBtnOutline]} onPress={() => remove(friendId)}>
-                        <Text style={styles.smallBtnOutlineText}>Remove</Text>
-                      </TouchableOpacity>
-                    </View>
+                    <PersonRow
+                      key={friendId}
+                      user={user}
+                      onPress={() => router.push(`/profile/${friendId}`)}
+                      trailing={<PillButton label="Remove" variant="outline" onPress={() => remove(friendId)} />}
+                    />
                   );
                 })
               )}
@@ -528,18 +480,6 @@ const styles = StyleSheet.create({
   segmentTextActive: { color: COLORS.accent },
 
   chatList: { paddingHorizontal: SPACING.base, paddingBottom: 120 },
-  chatRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    paddingVertical: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.borderSubtle,
-  },
-  chatMid: { flex: 1, minWidth: 0 },
-  chatName: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.md },
-  chatPreview: { color: COLORS.textTertiary, fontSize: FONTS.sizes.sm, marginTop: 2 },
-  chatTime: { color: COLORS.textTertiary, fontSize: FONTS.sizes.xs, marginLeft: 4 },
 
   centerPad: { paddingVertical: SPACING.xl, alignItems: 'center' },
   emptyChats: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.xxl, alignItems: 'center' },
@@ -615,45 +555,5 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: FONTS.weights.bold },
 
-  userRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-    alignItems: 'center',
-    paddingVertical: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderSubtle,
-  },
-  userMain: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center', flex: 1 },
-  avatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.bgElevated,
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  avatarImg: { width: 44, height: 44, borderRadius: 22 },
-  avatarInitial: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: 14 },
-  userName: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, flexShrink: 1 },
-  userHandle: { color: COLORS.textTertiary, fontSize: FONTS.sizes.xs, marginTop: 2 },
-
   sectionTitle: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.md, marginTop: SPACING.md, marginBottom: SPACING.sm },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderSubtle,
-  },
-  name: { color: COLORS.textPrimary, fontWeight: FONTS.weights.medium, flexShrink: 1 },
-
-  smallBtn: { borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: 10, justifyContent: 'center', alignItems: 'center' },
-  smallBtnPrimary: { backgroundColor: COLORS.accent },
-  smallBtnOutline: { backgroundColor: COLORS.bgElevated, borderWidth: 1, borderColor: COLORS.border },
-  smallBtnDisabled: { backgroundColor: COLORS.bgElevated, borderWidth: 1, borderColor: COLORS.borderSubtle },
-  smallBtnTextInverse: { color: COLORS.textInverse, fontWeight: FONTS.weights.bold },
-  smallBtnOutlineText: { color: COLORS.textSecondary, fontWeight: FONTS.weights.medium },
-  smallBtnTextDisabled: { color: COLORS.textTertiary, fontWeight: FONTS.weights.medium },
 });

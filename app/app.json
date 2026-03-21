@@ -19,7 +19,10 @@
         "NSCameraUsageDescription": "Liveline uses your camera to capture moments.",
         "NSMicrophoneUsageDescription": "Liveline uses your microphone to record moments.",
         "NSLocationWhenInUseUsageDescription": "Liveline uses your location to show you on the live map.",
-        "NSPhotoLibraryUsageDescription": "Liveline accesses your photos to let you post moments."
+        "NSPhotoLibraryUsageDescription": "Liveline accesses your photos to let you post moments.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
       }
     },
     "android": {
@@ -38,6 +41,14 @@
       ]
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
       "expo-router",
       "expo-camera",
       "expo-location",

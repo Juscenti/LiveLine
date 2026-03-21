@@ -7,8 +7,9 @@ import {
   StyleSheet, RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNotificationStore } from '@/stores/notificationStore';
-import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
+import { COLORS, SPACING, FONTS } from '@/constants';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import type { Notification } from '@/types';
@@ -27,6 +28,7 @@ const ICONS: Record<string, string> = {
 };
 
 export default function NotificationsScreen() {
+  const insets = useSafeAreaInsets();
   const { notifications, isLoading, load, loadMore, markRead, markAllRead } = useNotificationStore();
 
   useEffect(() => { load(); }, []);
@@ -38,7 +40,7 @@ export default function NotificationsScreen() {
         if (!item.is_read) markRead(item.id);
         // Navigate to relevant content
         if (item.ref_type === 'post' && item.ref_id) router.push(`/post/${item.ref_id}`);
-        if (item.ref_type === 'friendship') router.push('/friends');
+        if (item.ref_type === 'friendship') router.push('/(tabs)/friends');
       }}
     >
       <Text style={styles.icon}>{ICONS[item.type] ?? '🔔'}</Text>
@@ -52,7 +54,7 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.title}>Notifications</Text>
         <TouchableOpacity onPress={markAllRead}>
           <Text style={styles.markAll}>Mark all read</Text>
@@ -82,7 +84,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: SPACING.base, paddingTop: 56, paddingBottom: SPACING.md,
+    paddingHorizontal: SPACING.base, paddingBottom: SPACING.md,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
   title: { fontSize: FONTS.sizes.xl, fontWeight: FONTS.weights.bold, color: COLORS.textPrimary },

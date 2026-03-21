@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
+import { formatApiError } from '@/utils/apiErrors';
 import { COLORS, FONTS, SPACING, RADIUS } from '@/constants';
 
 export default function RegisterScreen() {
@@ -24,10 +25,8 @@ export default function RegisterScreen() {
     try {
       await register(email.trim().toLowerCase(), password, username.trim().toLowerCase());
       router.replace('/(tabs)/feed');
-    } catch (e: any) {
-      // Axios errors often have `response.data.error`; Supabase errors have `message`.
-      const msg = e?.response?.data?.error ?? e?.message ?? 'Unknown error';
-      Alert.alert('Registration failed', msg);
+    } catch (e: unknown) {
+      Alert.alert('Registration failed', formatApiError(e));
     }
   };
 

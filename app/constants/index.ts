@@ -8,8 +8,8 @@ export const COLORS = {
   accentDim: '#00CC75',
   accentMuted: '#00FF9420',
 
-  // Backgrounds
-  bg: '#0A0A0A',
+  // Backgrounds (match feed / pure black for one surface)
+  bg: '#000000',
   bgCard: '#141414',
   bgElevated: '#1C1C1C',
   bgSheet: '#161616',
