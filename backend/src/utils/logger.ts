@@ -1,5 +1,5 @@
 // ============================================================
-// Server logging — readable in Render / Docker / terminal
+// Server logging — readable in Railway / Docker / terminal
 // ============================================================
 
 const ts = () => new Date().toISOString();

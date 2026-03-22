@@ -12,7 +12,7 @@ import type { User } from '@/types';
 let supabaseAuthListenerRegistered = false;
 
 /** Cold Render / flaky Wi‑Fi — bounded retries; does not stack with UI-level refresh calls. */
-async function fetchMeWithRetry(maxAttempts = 3): Promise<User | null> {
+async function fetchMeWithRetry(maxAttempts = 5): Promise<User | null> {
   let last: User | null = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
@@ -24,7 +24,7 @@ async function fetchMeWithRetry(maxAttempts = 3): Promise<User | null> {
       last = null;
     }
     if (attempt < maxAttempts - 1) {
-      await new Promise((r) => setTimeout(r, 280 * (attempt + 1)));
+      await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
     }
   }
   return last;
@@ -95,7 +95,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         void (async () => {
           await wakeBackend().catch(() => {});
-          const user = await fetchMeWithRetry(2);
+          const user = await fetchMeWithRetry(5);
           set({ user: user ?? get().user });
         })();
       } else {

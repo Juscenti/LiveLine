@@ -1,11 +1,13 @@
 // ============================================================
 // services/api.ts — Axios instance pointing to Node.js backend
 // ============================================================
-import axios from 'axios';
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type { Session } from '@supabase/supabase-js';
 import { rewriteLocalhostForAndroidEmulator } from '@/utils/devNetwork';
 import { supabase } from './supabase';
 import { getAccessToken, setAccessToken } from './accessTokenStore';
+
+type RetryableRequest = InternalAxiosRequestConfig & { _retryAfterAuth?: boolean };
 
 const BASE_URL = rewriteLocalhostForAndroidEmulator(process.env.EXPO_PUBLIC_API_URL ?? '');
 if (!BASE_URL) {
@@ -14,7 +16,7 @@ if (!BASE_URL) {
 
 export const api = axios.create({
   baseURL: BASE_URL,
-  // Render can go to sleep; cold starts may exceed the old 15s timeout.
+  // Hosted backends (e.g. Railway) may cold-start; keep a generous timeout.
   timeout: 60000,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -25,7 +27,7 @@ const getBackendHealthUrl = () => {
   return `${base}/health`;
 };
 
-// Wake the backend (Render cold start) before we make authenticated calls.
+// Wake the backend (cold start / slow first byte) before authenticated calls.
 export const wakeBackend = async () => {
   try {
     await axios.get(getBackendHealthUrl(), { timeout: 45_000 });
@@ -34,17 +36,33 @@ export const wakeBackend = async () => {
   }
 };
 
-/** Web / async storage can lag right after login — one short retry avoids 401 on /auth/me. */
+/** Web / async storage can lag right after login — bounded retries avoid 401 on first paint. */
 async function getSessionForApi(): Promise<Session | null> {
   const read = async (): Promise<Session | null> => {
     const { data: { session } } = await supabase.auth.getSession();
     return session?.access_token ? session : null;
   };
-  let s = await read();
-  if (s) return s;
-  await new Promise((r) => setTimeout(r, 100));
-  s = await read();
-  return s;
+  for (let i = 0; i < 4; i++) {
+    const s = await read();
+    if (s) return s;
+    await new Promise((r) => setTimeout(r, 80 * (i + 1)));
+  }
+  return null;
+}
+
+async function applyFreshTokenToRequest(config: RetryableRequest): Promise<boolean> {
+  const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession();
+  let token = refreshData.session?.access_token;
+  if (!token && !refreshErr) {
+    const { data: { session } } = await supabase.auth.getSession();
+    token = session?.access_token;
+  }
+  if (token) {
+    setAccessToken(token);
+    config.headers.Authorization = `Bearer ${token}`;
+    return true;
+  }
+  return false;
 }
 
 // Attach Supabase JWT to every request
@@ -76,11 +94,33 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Do not sign out on every 401 — posts/friends/map can return 401 for reasons other than "bad session",
-// and cold backends / RLS / race conditions were nuking the Supabase session and bricking the app.
+// One retry after refresh: fixes races right after login / cold start where the first requests
+// ran before AsyncStorage session was readable, without signing the user out.
 api.interceptors.response.use(
   (res) => res,
-  (err) => Promise.reject(err)
+  async (err: AxiosError) => {
+    const status = err.response?.status;
+    const original = err.config as RetryableRequest | undefined;
+    const url = original?.url ?? '';
+
+    const isAuthFree =
+      url.includes('/auth/register') ||
+      url.includes('/auth/login');
+
+    if (
+      status !== 401 ||
+      !original ||
+      original._retryAfterAuth ||
+      isAuthFree
+    ) {
+      return Promise.reject(err);
+    }
+
+    original._retryAfterAuth = true;
+    const ok = await applyFreshTokenToRequest(original);
+    if (!ok) return Promise.reject(err);
+    return api(original);
+  },
 );
 
 // ── Typed request helpers ───────────────────────────────────

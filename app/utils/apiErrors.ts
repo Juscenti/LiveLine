@@ -10,7 +10,7 @@ function isHostedHttpsApi(): boolean {
 
 function devApiHint(): string {
   if (isHostedHttpsApi()) {
-    return 'Check Wi‑Fi/cellular and VPN. Hosted APIs (e.g. Render) can cold‑start — wait ~30s and retry.';
+    return 'Check Wi‑Fi/cellular and VPN. Hosted APIs can cold‑start — wait ~30s and retry.';
   }
   return 'On a real phone, use http://YOUR_PC_LAN_IP:PORT/api in EXPO_PUBLIC_API_URL (not localhost). Restart Expo with -c after changing .env. HTTP on Android may need a dev build (not Expo Go).';
 }

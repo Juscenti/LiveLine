@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 
 /**
- * Request/response logging for production debugging (Render logs).
+ * Request/response logging for production debugging (Railway / host logs).
  * - Logs every request on `finish`: method, URL, status, duration.
  * - Logs JSON error bodies when status >= 400 (so Supabase/API errors appear in logs).
  */

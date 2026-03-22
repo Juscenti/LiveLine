@@ -78,33 +78,57 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   return res.json({ data: friends, error: null });
 });
 
-// Pending outgoing requests (where I am the requester)
+// Pending outgoing (I am requester) — avoid PostgREST embeds (FK hint names differ across DBs / RLS edge cases).
 router.get('/outgoing', requireAuth, async (req: AuthRequest, res: Response) => {
   const db = createSupabaseUserClient(req.accessToken!);
-  const { data, error } = await db
+  const { data: rows, error } = await db
     .from('friendships')
-    .select(
-      '*, addressee:users!friendships_addressee_id_fkey(id, username, display_name, profile_picture_url)',
-    )
+    .select('id, requester_id, addressee_id, status, created_at, updated_at')
     .eq('requester_id', req.userId)
     .eq('status', 'pending');
 
   if (error) return res.status(500).json({ error: error.message, data: null });
+  const ids = [...new Set((rows ?? []).map((r: { addressee_id: string }) => r.addressee_id))].filter(Boolean);
+  if (ids.length === 0) return res.json({ data: [], error: null });
+
+  const { data: usersData, error: usersError } = await db
+    .from('users')
+    .select('id, username, display_name, profile_picture_url')
+    .in('id', ids);
+
+  if (usersError) return res.status(500).json({ error: usersError.message, data: null });
+  const byId = new Map((usersData ?? []).map((u: { id: string }) => [u.id, u]));
+  const data = (rows ?? []).map((r: Record<string, unknown>) => ({
+    ...r,
+    addressee: byId.get(r.addressee_id as string) ?? null,
+  }));
   return res.json({ data, error: null });
 });
 
 // Incoming friend requests (must be registered BEFORE /status/:userId or "requests" is captured as a userId).
 router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => {
   const db = createSupabaseUserClient(req.accessToken!);
-  const { data, error } = await db
+  const { data: rows, error } = await db
     .from('friendships')
-    .select(
-      '*, requester:users!friendships_requester_id_fkey(id, username, display_name, profile_picture_url)',
-    )
+    .select('id, requester_id, addressee_id, status, created_at, updated_at')
     .eq('addressee_id', req.userId)
     .eq('status', 'pending');
 
   if (error) return res.status(500).json({ error: error.message, data: null });
+  const ids = [...new Set((rows ?? []).map((r: { requester_id: string }) => r.requester_id))].filter(Boolean);
+  if (ids.length === 0) return res.json({ data: [], error: null });
+
+  const { data: usersData, error: usersError } = await db
+    .from('users')
+    .select('id, username, display_name, profile_picture_url')
+    .in('id', ids);
+
+  if (usersError) return res.status(500).json({ error: usersError.message, data: null });
+  const byId = new Map((usersData ?? []).map((u: { id: string }) => [u.id, u]));
+  const data = (rows ?? []).map((r: Record<string, unknown>) => ({
+    ...r,
+    requester: byId.get(r.requester_id as string) ?? null,
+  }));
   return res.json({ data, error: null });
 });
 

@@ -47,7 +47,7 @@ app.use(
       // Native apps, curl, server-to-server — no Origin header
       if (!origin) return callback(null, true);
       if (corsAllowedOrigins.length === 0) {
-        // Dev / same-machine: reflect Origin (set CORS_ORIGINS in production web clients)
+        // Dev / same-machine: reflect Origin (set CORS_ORIGINS in production for web clients)
         return callback(null, true);
       }
       if (corsAllowedOrigins.includes(origin)) return callback(null, true);
