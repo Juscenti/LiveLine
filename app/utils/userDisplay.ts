@@ -7,6 +7,7 @@ export type UserLike = {
   username?: string | null;
   display_name?: string | null;
   profile_picture_url?: string | null;
+  banner_url?: string | null;
 };
 
 export function getDisplayName(u: UserLike): string {

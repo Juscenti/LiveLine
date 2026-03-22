@@ -6,7 +6,7 @@ import { COLORS, FONTS } from '@/constants';
 import type { UserLike } from '@/utils/userDisplay';
 import { getInitial } from '@/utils/userDisplay';
 
-const SIZES = { sm: 32, md: 44, lg: 56, xl: 72 } as const;
+const SIZES = { sm: 32, md: 44, lg: 56, xl: 72, xxl: 84 } as const;
 
 export type AvatarSize = keyof typeof SIZES;
 
@@ -26,7 +26,23 @@ export default function UserAvatar({ user, size = 'md', bordered }: Props) {
     <Image source={{ uri }} style={[styles.img, { width: dim, height: dim, borderRadius: radius }]} />
   ) : (
     <View style={[styles.placeholder, { width: dim, height: dim, borderRadius: radius }]}>
-      <Text style={[styles.initial, { fontSize: size === 'sm' ? 13 : size === 'md' ? 15 : size === 'lg' ? 18 : 22 }]}>
+      <Text
+        style={[
+          styles.initial,
+          {
+            fontSize:
+              size === 'sm'
+                ? 13
+                : size === 'md'
+                  ? 15
+                  : size === 'lg'
+                    ? 18
+                    : size === 'xl'
+                      ? 22
+                      : 26,
+          },
+        ]}
+      >
         {getInitial(user)}
       </Text>
     </View>

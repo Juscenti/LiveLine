@@ -228,6 +228,71 @@ export async function sendTextMessage(conversationId: string, body: string): Pro
   return data as ChatMessage;
 }
 
+/** Storage path must match RLS: `{conversation_id}/{sender_user_id}/{filename}` */
+export async function sendImageToFriend(
+  otherUserId: string,
+  localImageUri: string,
+  mimeType: string = 'image/jpeg',
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const conv = await getOrCreateDirectConversation(otherUserId);
+  if (!conv.ok) return { ok: false, message: conv.message };
+
+  const myId = await getMyPublicUserId();
+  if (!myId) return { ok: false, message: 'Not signed in' };
+
+  const ext = mimeType.includes('png')
+    ? 'png'
+    : mimeType.includes('webp')
+      ? 'webp'
+      : mimeType.includes('gif')
+        ? 'gif'
+        : 'jpg';
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
+  const objectPath = `${conv.conversationId}/${myId}/${filename}`;
+
+  const res = await fetch(localImageUri);
+  const blob = await res.blob();
+
+  const { error: uploadError } = await supabase.storage.from('message-images').upload(objectPath, blob, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: mimeType,
+  });
+
+  if (uploadError) return { ok: false, message: uploadError.message };
+
+  const { data: pub } = supabase.storage.from('message-images').getPublicUrl(objectPath);
+  const imageUrl = pub.publicUrl;
+
+  const { error: insertError } = await supabase
+    .from('messages')
+    .insert({
+      conversation_id: conv.conversationId,
+      sender_id: myId,
+      body: null,
+      image_url: imageUrl,
+    })
+    .select('id')
+    .maybeSingle();
+
+  if (insertError) return { ok: false, message: insertError.message };
+  return { ok: true };
+}
+
+export async function sendImageToFriends(
+  friendUserIds: string[],
+  localImageUri: string,
+  mimeType?: string,
+): Promise<Array<{ userId: string; ok: boolean; message?: string }>> {
+  const mt = mimeType ?? 'image/jpeg';
+  const out: Array<{ userId: string; ok: boolean; message?: string }> = [];
+  for (const uid of friendUserIds) {
+    const r = await sendImageToFriend(uid, localImageUri, mt);
+    out.push({ userId: uid, ok: r.ok, message: r.ok ? undefined : r.message });
+  }
+  return out;
+}
+
 /** Subscribe to new rows in this conversation (Realtime publication must include `messages`). */
 export function subscribeToConversationMessages(
   conversationId: string,
