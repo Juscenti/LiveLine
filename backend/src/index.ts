@@ -22,6 +22,13 @@ import { logInfo } from './utils/logger';
 
 const app = express();
 
+// Railway / Render / etc. terminate TLS and set X-Forwarded-For. express-rate-limit v7+
+// throws if that header exists while trust proxy is false. TRUST_PROXY=0 disables (local).
+if (process.env.TRUST_PROXY !== '0') {
+  const hops = Number(process.env.TRUST_PROXY);
+  app.set('trust proxy', Number.isFinite(hops) && hops >= 0 ? hops : 1);
+}
+
 const rawPort = Number(process.env.PORT ?? 4000);
 const PORT = Number.isFinite(rawPort) && rawPort > 0 ? rawPort : 4000;
 
