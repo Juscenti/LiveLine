@@ -125,9 +125,20 @@ export async function createPost(req: AuthRequest, res: Response) {
 export async function deletePost(req: AuthRequest, res: Response) {
   const { postId } = req.params;
 
-  const db = createSupabaseUserClient(req.accessToken!);
+  // Service role bypasses RLS; ownership checked against req.userId from requireAuth.
+  const { data: post, error: fetchErr } = await supabaseAdmin
+    .from('posts')
+    .select('id, user_id')
+    .eq('id', postId)
+    .maybeSingle();
 
-  const { error } = await db
+  if (fetchErr) return res.status(500).json({ error: fetchErr.message, data: null });
+  if (!post) return res.status(404).json({ error: 'Post not found', data: null });
+  if (post.user_id !== req.userId) {
+    return res.status(403).json({ error: 'Forbidden', data: null });
+  }
+
+  const { error } = await supabaseAdmin
     .from('posts')
     .update({ is_deleted: true })
     .eq('id', postId)
