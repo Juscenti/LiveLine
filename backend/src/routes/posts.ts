@@ -106,7 +106,7 @@ export async function createPost(req: AuthRequest, res: Response) {
       media_width: mediaWidth,
       media_height: mediaHeight,
     })
-    .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
+    .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
     .single();
 
   // Older DBs without migration 15_post_media_dimensions.sql — retry without dimension columns.
@@ -114,7 +114,7 @@ export async function createPost(req: AuthRequest, res: Response) {
     ({ data, error } = await db
       .from('posts')
       .insert(rowBase)
-      .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
+      .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
       .single());
   }
 
@@ -169,10 +169,11 @@ export async function unlikePost(req: AuthRequest, res: Response) {
 export async function recordView(req: AuthRequest, res: Response) {
   const { postId } = req.params;
   const db = createSupabaseUserClient(req.accessToken!);
-  await db
-    .from('post_views')
-    .insert({ post_id: postId, viewer_id: req.userId });
-
+  const { error } = await db.from('post_views').insert({ post_id: postId, viewer_id: req.userId });
+  // Best-effort: RLS or duplicate views should not surface as 5xx to the client.
+  if (error && process.env.NODE_ENV !== 'production') {
+    console.warn('[recordView]', postId, error.message);
+  }
   return res.status(204).send();
 }
 
@@ -182,7 +183,7 @@ export async function getComments(req: AuthRequest, res: Response) {
 
   const { data, error } = await db
     .from('post_comments')
-    .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
+    .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
     .eq('post_id', postId)
     .eq('is_deleted', false)
     .order('created_at', { ascending: true });
@@ -201,7 +202,7 @@ export async function getPost(req: AuthRequest, res: Response) {
 
   const { data: post, error } = await db
     .from('posts')
-    .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
+    .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
     .eq('id', postId)
     .eq('is_deleted', false)
     .maybeSingle();
@@ -236,7 +237,7 @@ export async function addComment(req: AuthRequest, res: Response) {
   const { data, error } = await db
     .from('post_comments')
     .insert({ post_id: postId, user_id: req.userId, body: parsed.data.body })
-    .select('*, author:users!inner(id, username, display_name, profile_picture_url)')
+    .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
     .single();
 
   if (error) return res.status(500).json({ error: error.message, data: null });

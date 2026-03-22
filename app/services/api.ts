@@ -2,6 +2,7 @@
 // services/api.ts — Axios instance pointing to Node.js backend
 // ============================================================
 import axios from 'axios';
+import type { Session } from '@supabase/supabase-js';
 import { rewriteLocalhostForAndroidEmulator } from '@/utils/devNetwork';
 import { supabase } from './supabase';
 import { getAccessToken, setAccessToken } from './accessTokenStore';
@@ -33,6 +34,19 @@ export const wakeBackend = async () => {
   }
 };
 
+/** Web / async storage can lag right after login — one short retry avoids 401 on /auth/me. */
+async function getSessionForApi(): Promise<Session | null> {
+  const read = async (): Promise<Session | null> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ? session : null;
+  };
+  let s = await read();
+  if (s) return s;
+  await new Promise((r) => setTimeout(r, 100));
+  s = await read();
+  return s;
+}
+
 // Attach Supabase JWT to every request
 api.interceptors.request.use(async (config) => {
   // Avoid auth-session lookups for unauthenticated endpoints.
@@ -46,67 +60,17 @@ api.interceptors.request.use(async (config) => {
   try {
     // Prefer the live Supabase session (auto-refreshed). In-memory token alone can be
     // stale after refresh and caused 401s on posts/delete/friends while the UI still looked logged in.
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = await getSessionForApi();
     if (session?.access_token) {
       setAccessToken(session.access_token);
       config.headers.Authorization = `Bearer ${session.access_token}`;
-      // #region agent log
-      fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
-        body: JSON.stringify({
-          sessionId: 'd26f09',
-          hypothesisId: 'H4',
-          location: 'services/api.ts:interceptor',
-          message: 'axios auth attach',
-          data: {
-            url: config.url,
-            source: 'supabase_session',
-            tokenLen: session.access_token.length,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       return config;
     }
     const token = getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
-    // #region agent log
-    fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
-      body: JSON.stringify({
-        sessionId: 'd26f09',
-        hypothesisId: 'H4',
-        location: 'services/api.ts:interceptor',
-        message: 'axios auth attach',
-        data: {
-          url: config.url,
-          source: 'memory_fallback',
-          tokenLen: token?.length ?? 0,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   } catch {
     const token = getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
-    // #region agent log
-    fetch('http://127.0.0.1:7393/ingest/3b33b110-61a6-45ae-9299-a69f0711fe19', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd26f09' },
-      body: JSON.stringify({
-        sessionId: 'd26f09',
-        hypothesisId: 'H4',
-        location: 'services/api.ts:interceptor',
-        message: 'axios auth attach catch',
-        data: { url: config.url, tokenLen: token?.length ?? 0 },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }
 
   return config;

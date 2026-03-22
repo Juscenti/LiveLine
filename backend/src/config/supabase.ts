@@ -5,7 +5,11 @@ import { createClient } from '@supabase/supabase-js';
 
 /** Avoid CRLF/BOM in .env on Windows — breaks JWT "apikey" verification. */
 function env(s: string | undefined): string {
-  return (s ?? '').replace(/^\uFEFF/, '').trim().replace(/\r$/, '');
+  let v = (s ?? '').replace(/^\uFEFF/, '').trim().replace(/\r$/, '');
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1).trim();
+  }
+  return v;
 }
 
 const SUPABASE_URL = env(process.env.SUPABASE_URL);

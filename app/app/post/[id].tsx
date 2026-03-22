@@ -90,8 +90,10 @@ export default function PostDetailScreen() {
     if (!id) return;
     postsApi.recordView(id).catch(() => {});
     setLoadingComments(true);
-    postsApi.getComments(id)
-      .then(({ data }) => setComments(data.data))
+    postsApi
+      .getComments(id)
+      .then(({ data }) => setComments(data?.data ?? []))
+      .catch(() => setComments([]))
       .finally(() => setLoadingComments(false));
   }, [id]);
 
@@ -110,6 +112,8 @@ export default function PostDetailScreen() {
       const { data } = await postsApi.addComment(id, commentText.trim());
       setComments((c) => [...c, data.data]);
       setCommentText('');
+    } catch (e) {
+      Alert.alert('Could not post comment', formatApiError(e));
     } finally {
       setSubmitting(false);
     }

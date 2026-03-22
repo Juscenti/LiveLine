@@ -12,7 +12,7 @@ import type { User } from '@/types';
 let supabaseAuthListenerRegistered = false;
 
 /** Cold Render / flaky Wi‑Fi — bounded retries; does not stack with UI-level refresh calls. */
-async function fetchMeWithRetry(maxAttempts = 2): Promise<User | null> {
+async function fetchMeWithRetry(maxAttempts = 3): Promise<User | null> {
   let last: User | null = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {

@@ -28,7 +28,9 @@ export default function ProfileScreen() {
     postsApi
       .getUserPosts(user.id)
       .then(({ data }) => setPosts(Array.isArray(data?.data) ? data.data : []))
-      .catch(() => setPosts([]));
+      .catch(() => {
+        setPosts([]);
+      });
   }, [user]);
 
   if (!user?.id) {

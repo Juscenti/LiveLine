@@ -45,6 +45,10 @@ export default function PublicProfileScreen() {
         const raw = postsRes.data?.data;
         setPosts(Array.isArray(raw) ? raw : []);
       })
+      .catch(() => {
+        setProfile(null);
+        setPosts([]);
+      })
       .finally(() => setLoading(false));
   }, [id]);
 

@@ -9,7 +9,11 @@ import { rewriteLocalhostForAndroidEmulator } from '@/utils/devNetwork';
 
 /** Windows .env often adds \\r; BOM breaks URL parsing — both break the anon JWT "apikey" header. */
 function normalizeEnv(s: string): string {
-  return s.replace(/^\uFEFF/, '').trim().replace(/\r$/, '');
+  let v = s.replace(/^\uFEFF/, '').trim().replace(/\r$/, '');
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1).trim();
+  }
+  return v;
 }
 
 function isPlausibleSupabaseAnonKey(key: string): boolean {
