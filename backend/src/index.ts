@@ -18,6 +18,7 @@ import interestsRoutes    from './routes/interests';
 
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
+import { logInfo } from './utils/logger';
 
 const app = express();
 
@@ -103,12 +104,21 @@ app.use('/api/music',         musicRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/interests',     interestsRoutes);
 
+// ── 404 (logged) ─────────────────────────────────────────────
+app.use((req, res) => {
+  logInfo('404', `${req.method} ${req.originalUrl}`);
+  res.status(404).json({ error: 'Not found', data: null });
+});
+
 // ── Error handler (must be last) ─────────────────────────────
 app.use(errorHandler);
 
 // Bind to all interfaces so the phone can reach the API over LAN.
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Liveline API running on http://0.0.0.0:${PORT}`);
+  logInfo('Startup', `Liveline API listening on http://0.0.0.0:${PORT}`, {
+    nodeEnv: process.env.NODE_ENV ?? 'undefined',
+    corsOriginsConfigured: corsAllowedOrigins.length > 0,
+  });
 });
 
 export default app;
