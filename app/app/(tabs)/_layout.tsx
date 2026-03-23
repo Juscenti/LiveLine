@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS } from '@/constants';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 
 /** Reference proportions: bar ≈ 2.5× icon height; icon ≈ 40% of bar. */
 const ICON_SIZE = 23;
@@ -221,9 +222,24 @@ function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
+function FriendsInboxPrefetch() {
+  const session = useAuthStore((s) => s.session);
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      useFriendsInboxStore.getState().clear();
+      return;
+    }
+    void useFriendsInboxStore.getState().fetch();
+  }, [session?.access_token]);
+
+  return null;
+}
+
 export default function TabsLayout() {
   return (
     <View style={{ flex: 1 }}>
+      <FriendsInboxPrefetch />
       <Tabs
         tabBar={(props) => <FloatingTabBar {...props} />}
         screenOptions={{

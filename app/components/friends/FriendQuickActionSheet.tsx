@@ -1,12 +1,14 @@
 // ============================================================
-// FriendQuickActionModal — banner + avatar, profile / message
+// FriendQuickActionSheet — banner + avatar, profile / message
+// Uses the same bottom sheet shell as filter / requests.
 // ============================================================
-import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { usersApi } from '@/services/api';
 import UserAvatar from '@/components/shared/UserAvatar';
+import { InboxBottomSheet } from '@/components/friends/InboxBottomSheet';
 import { COLORS, FONTS, RADIUS, SPACING } from '@/constants';
 import type { UserLike } from '@/utils/userDisplay';
 import { formatUserHandle, getDisplayName } from '@/utils/userDisplay';
@@ -17,18 +19,21 @@ type ProfilePayload = UserLike & {
 };
 
 type Props = {
-  visible: boolean;
+  open: boolean;
   user: UserLike | null;
   onClose: () => void;
   onViewProfile: (userId: string) => void;
   onMessage: (userId: string) => void;
 };
 
-export function FriendQuickActionModal({ visible, user, onClose, onViewProfile, onMessage }: Props) {
+const SHEET_HEIGHT = 0.5;
+const BANNER_H = 120;
+
+export function FriendQuickActionSheet({ open, user, onClose, onViewProfile, onMessage }: Props) {
   const [profile, setProfile] = useState<ProfilePayload | null>(null);
 
   useEffect(() => {
-    if (!visible || !user?.id) {
+    if (!open || !user?.id) {
       setProfile(null);
       return;
     }
@@ -47,89 +52,79 @@ export function FriendQuickActionModal({ visible, user, onClose, onViewProfile, 
     return () => {
       cancelled = true;
     };
-  }, [visible, user?.id, user]);
+  }, [open, user?.id, user]);
 
   const display = profile ?? user;
   const uid = display?.id;
   const bannerUri = display?.banner_url?.trim();
 
+  const title = useMemo(() => {
+    if (!user) return 'Friend';
+    return getDisplayName(display ?? user);
+  }, [user, display]);
+
   if (!user) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.root}>
-        <Pressable style={styles.dim} onPress={onClose} accessibilityLabel="Dismiss" />
-        <View style={styles.card} accessibilityViewIsModal>
-          <View style={styles.bannerBlock}>
-            {bannerUri ? (
-              <Image source={{ uri: bannerUri }} style={styles.bannerImg} contentFit="cover" />
-            ) : (
-              <View style={[styles.bannerImg, styles.bannerFallback]} />
-            )}
-            <View style={styles.bannerScrim} />
+    <InboxBottomSheet
+      open={open}
+      onClose={onClose}
+      title={title}
+      heightPercent={SHEET_HEIGHT}
+      accessibilityLabel="Friend actions"
+    >
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.bannerBlock}>
+          {bannerUri ? (
+            <Image source={{ uri: bannerUri }} style={styles.bannerImg} contentFit="cover" />
+          ) : (
+            <View style={[styles.bannerImg, styles.bannerFallback]} />
+          )}
+          <View style={styles.bannerScrim} />
+        </View>
+
+        <View style={styles.content}>
+          <View style={styles.avatarSlot}>
+            <UserAvatar user={display!} size="xl" bordered />
           </View>
 
-          <View style={styles.content}>
-            <View style={styles.avatarSlot}>
-              <UserAvatar user={display!} size="xl" bordered />
-            </View>
+          <Text style={styles.handle} numberOfLines={1}>
+            {formatUserHandle(display?.username)}
+          </Text>
 
-            <Text style={styles.name} numberOfLines={1}>
-              {display ? getDisplayName(display) : '…'}
-            </Text>
-            <Text style={styles.handle} numberOfLines={1}>
-              {formatUserHandle(display?.username)}
-            </Text>
-
-            <View style={styles.row}>
-              <TouchableOpacity
-                style={styles.btnPrimary}
-                onPress={() => uid && onViewProfile(uid)}
-                activeOpacity={0.9}
-                disabled={!uid}
-              >
-                <Ionicons name="person-outline" size={20} color={COLORS.textInverse} />
-                <Text style={styles.btnPrimaryText}>Profile</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.btnGhost}
-                onPress={() => uid && onMessage(uid)}
-                activeOpacity={0.9}
-                disabled={!uid}
-              >
-                <Ionicons name="chatbubble-outline" size={20} color={COLORS.textPrimary} />
-                <Text style={styles.btnGhostText}>Message</Text>
-              </TouchableOpacity>
-            </View>
+          <View style={styles.row}>
+            <TouchableOpacity
+              style={styles.btnPrimary}
+              onPress={() => uid && onViewProfile(uid)}
+              activeOpacity={0.9}
+              disabled={!uid}
+            >
+              <Ionicons name="person-outline" size={20} color={COLORS.textInverse} />
+              <Text style={styles.btnPrimaryText}>Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.btnGhost}
+              onPress={() => uid && onMessage(uid)}
+              activeOpacity={0.9}
+              disabled={!uid}
+            >
+              <Ionicons name="chatbubble-outline" size={20} color={COLORS.textPrimary} />
+              <Text style={styles.btnGhostText}>Message</Text>
+            </TouchableOpacity>
           </View>
         </View>
-      </View>
-    </Modal>
+      </ScrollView>
+    </InboxBottomSheet>
   );
 }
 
-const BANNER_H = 112;
-
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.base,
-  },
-  dim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.72)',
-  },
-  card: {
-    width: '100%',
-    maxWidth: 400,
-    borderRadius: RADIUS.lg,
-    overflow: 'hidden',
-    backgroundColor: COLORS.bgCard,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: COLORS.border,
-    zIndex: 2,
+  scroll: {
+    paddingBottom: SPACING.lg,
   },
   bannerBlock: {
     height: BANNER_H,
@@ -149,24 +144,15 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: SPACING.base,
-    paddingBottom: SPACING.lg,
-    paddingTop: 0,
     alignItems: 'center',
   },
   avatarSlot: {
     marginTop: -40,
     marginBottom: SPACING.sm,
   },
-  name: {
-    color: COLORS.textPrimary,
-    fontSize: FONTS.sizes.lg,
-    fontWeight: FONTS.weights.bold,
-    textAlign: 'center',
-  },
   handle: {
     color: COLORS.textTertiary,
     fontSize: FONTS.sizes.sm,
-    marginTop: 4,
     marginBottom: SPACING.md,
   },
   row: {

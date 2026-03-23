@@ -1,7 +1,8 @@
 // ============================================================
 // UserAvatar — consistent circles + initials across the app
 // ============================================================
-import { View, Text, Image, StyleSheet, type ImageStyle } from 'react-native';
+import { View, Text, StyleSheet, type ImageStyle } from 'react-native';
+import { Image } from 'expo-image';
 import { COLORS, FONTS } from '@/constants';
 import type { UserLike } from '@/utils/userDisplay';
 import { getInitial } from '@/utils/userDisplay';
@@ -23,7 +24,12 @@ export default function UserAvatar({ user, size = 'md', bordered }: Props) {
   const uri = user.profile_picture_url?.trim();
 
   const inner = uri ? (
-    <Image source={{ uri }} style={[styles.img, { width: dim, height: dim, borderRadius: radius }]} />
+    <Image
+      source={{ uri }}
+      style={[styles.img, { width: dim, height: dim, borderRadius: radius }]}
+      cachePolicy="memory-disk"
+      transition={0}
+    />
   ) : (
     <View style={[styles.placeholder, { width: dim, height: dim, borderRadius: radius }]}>
       <Text

@@ -6,6 +6,7 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/services/supabase';
 import { authApi, wakeBackend } from '@/services/api';
 import { clearAccessToken, setAccessToken } from '@/services/accessTokenStore';
+import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 import type { User } from '@/types';
 
 /** Only register Supabase listener once (initialize must not stack listeners on re-entry). */
@@ -135,6 +136,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const user = resp?.data?.data?.user ?? resp?.data?.user ?? null;
       set({ user: user ?? null, session });
+      void useFriendsInboxStore.getState().fetch();
     } finally {
       set({ isLoading: false });
     }
@@ -167,6 +169,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const user = resp?.data?.data?.user ?? resp?.data?.user ?? null;
       set({ user: user ?? null, session });
+      void useFriendsInboxStore.getState().fetch();
     } finally {
       set({ isLoading: false });
     }
@@ -179,6 +182,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // ignore: signOut can fail if the anon key is invalid
     }
     clearAccessToken();
+    useFriendsInboxStore.getState().clear();
     set({ user: null, session: null });
   },
 

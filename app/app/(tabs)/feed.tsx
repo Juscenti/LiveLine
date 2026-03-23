@@ -1,7 +1,7 @@
 // ============================================================
 // app/(tabs)/feed.tsx — Moment feed (Pinterest-style masonry)
 // ============================================================
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import {
   View,
   RefreshControl,
@@ -23,16 +23,21 @@ import { useResponsive } from '@/utils/responsive';
 export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const r = useResponsive();
+  const [feedWidth, setFeedWidth] = useState(0);
   const { posts, isLoading, isRefreshing, loadFeed, loadMore, refresh } = useFeedStore();
   const showEmpty = !isLoading && posts.length === 0;
 
-  const { columnWidth, listPad, gutter } = useMemo(() => {
-    const pad = r.padH;
-    const g = r.gutter;
-    const inner = r.maxFeedWidth - pad * 2;
+  /**
+   * Full-bleed masonry: no side padding; tight gutter between columns only.
+   * Use measured width (not `useWindowDimensions` alone) so column math matches the
+   * actual list — avoids a 1px+ sliver on the right from float/rounding drift.
+   */
+  const { columnWidth, gutter, innerWidth } = useMemo(() => {
+    const inner = Math.round(feedWidth > 0 ? feedWidth : r.width);
+    const g = Math.max(6, Math.round(inner * 0.014));
     const colW = (inner - 2 * g) / 2;
-    return { columnWidth: colW, listPad: pad, gutter: g };
-  }, [r.width, r.maxFeedWidth, r.padH, r.gutter]);
+    return { columnWidth: colW, gutter: g, innerWidth: inner };
+  }, [feedWidth, r.width]);
 
   useEffect(() => {
     loadFeed();
@@ -54,13 +59,14 @@ export default function FeedScreen() {
 
   const bottomPad = 100 + insets.bottom;
 
-  const postBtnSize = Math.round(44 * r.scale);
-  const headerPad = r.padH;
+  const feedScale = Math.min(r.scale * 1.08, 1.45);
+  const postBtnSize = Math.round(44 * feedScale);
+  const headerPad = Math.max(10, r.width * 0.03);
 
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8, paddingHorizontal: headerPad }]}>
-        <Text style={[styles.wordmark, { fontSize: FONTS.sizes.xl * r.scale }]}>liveline</Text>
+        <Text style={[styles.wordmark, { fontSize: FONTS.sizes.xl * feedScale }]}>liveline</Text>
         <TouchableOpacity
           style={[
             styles.postBtn,
@@ -73,11 +79,17 @@ export default function FeedScreen() {
           onPress={() => router.push('/camera')}
           activeOpacity={0.9}
         >
-          <Ionicons name="add" size={Math.round(22 * r.scale)} color={COLORS.textInverse} />
+          <Ionicons name="add" size={Math.round(22 * feedScale)} color={COLORS.textInverse} />
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.feedColumn, { maxWidth: r.maxFeedWidth }]}>
+      <View
+        style={styles.feedColumn}
+        onLayout={(e) => {
+          const w = Math.round(e.nativeEvent.layout.width);
+          setFeedWidth((prev) => (prev === w ? prev : w));
+        }}
+      >
         <FlashList
           style={styles.list}
           data={posts}
@@ -87,7 +99,7 @@ export default function FeedScreen() {
           renderItem={renderItem}
           contentContainerStyle={[
             styles.listContent,
-            { paddingHorizontal: listPad, paddingBottom: bottomPad },
+            { paddingBottom: bottomPad, width: innerWidth },
           ]}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
@@ -106,10 +118,10 @@ export default function FeedScreen() {
             ) : showEmpty ? (
               <View style={styles.empty}>
                 <Text style={styles.emptyEmoji}>⚡</Text>
-                <Text style={[styles.emptyTitle, { fontSize: FONTS.sizes.lg * r.scale }]}>
+                <Text style={[styles.emptyTitle, { fontSize: FONTS.sizes.lg * feedScale }]}>
                   Nothing yet
                 </Text>
-                <Text style={[styles.emptyText, { fontSize: FONTS.sizes.sm * r.scale }]}>
+                <Text style={[styles.emptyText, { fontSize: FONTS.sizes.sm * feedScale }]}>
                   Add some friends or post your first moment.
                 </Text>
               </View>
@@ -127,7 +139,6 @@ const styles = StyleSheet.create({
   feedColumn: {
     flex: 1,
     width: '100%',
-    alignSelf: 'center',
   },
   header: {
     flexDirection: 'row',

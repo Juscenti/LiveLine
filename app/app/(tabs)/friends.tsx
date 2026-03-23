@@ -33,9 +33,10 @@ import {
   type ConversationListItem,
 } from '@/services/conversations';
 import { COLORS, FEED, FONTS, RADIUS, SPACING, TAB_BAR } from '@/constants';
+import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 import { ConversationListRow, PersonRow, PillButton } from '@/components/shared';
 import { InboxBottomSheet } from '@/components/friends/InboxBottomSheet';
-import { FriendQuickActionModal } from '@/components/friends/FriendQuickActionModal';
+import { FriendQuickActionSheet } from '@/components/friends/FriendQuickActionSheet';
 import UserAvatar from '@/components/shared/UserAvatar';
 import { formatApiError } from '@/utils/apiErrors';
 import type { UserLike } from '@/utils/userDisplay';
@@ -71,10 +72,11 @@ const SHEET: Record<Exclude<SheetType, 'none'>, { height: number; title: string 
 export default function FriendsTabScreen() {
   const insets = useSafeAreaInsets();
 
-  const [loading, setLoading] = useState(false);
-  const [friends, setFriends] = useState<any[]>([]);
-  const [requests, setRequests] = useState<any[]>([]);
-  const [outgoing, setOutgoing] = useState<any[]>([]);
+  const friends = useFriendsInboxStore((s) => s.friends) as any[];
+  const requests = useFriendsInboxStore((s) => s.requests) as any[];
+  const outgoing = useFriendsInboxStore((s) => s.outgoing) as any[];
+  const friendsLoading = useFriendsInboxStore((s) => s.loading);
+  const fetchFriendsInbox = useFriendsInboxStore((s) => s.fetch);
 
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [convLoading, setConvLoading] = useState(false);
@@ -101,25 +103,6 @@ export default function FriendsTabScreen() {
 
   const scrollBottomPad = TAB_BAR.height + TAB_BAR.bottomGap + insets.bottom + 20;
 
-  const loadFriendsData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [friendsRes, requestsRes, outgoingRes] = await Promise.all([
-        friendsApi.getList(),
-        friendsApi.getRequests(),
-        friendsApi.getOutgoing(),
-      ]);
-
-      setFriends(friendsRes.data.data ?? friendsRes.data ?? []);
-      setRequests(requestsRes.data.data ?? requestsRes.data ?? []);
-      setOutgoing(outgoingRes.data.data ?? outgoingRes.data ?? []);
-    } catch (e: unknown) {
-      Alert.alert('Failed to load', formatApiError(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   const loadConversations = useCallback(async () => {
     setConvLoading(true);
     try {
@@ -131,8 +114,8 @@ export default function FriendsTabScreen() {
   }, []);
 
   useEffect(() => {
-    void loadFriendsData();
-  }, [loadFriendsData]);
+    void fetchFriendsInbox();
+  }, [fetchFriendsInbox]);
 
   useFocusEffect(
     useCallback(() => {
@@ -143,11 +126,11 @@ export default function FriendsTabScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadFriendsData(), loadConversations()]);
+      await Promise.all([fetchFriendsInbox({ withSpinner: true }), loadConversations()]);
     } finally {
       setRefreshing(false);
     }
-  }, [loadFriendsData, loadConversations]);
+  }, [fetchFriendsInbox, loadConversations]);
 
   const openSheet = useCallback((k: SheetType) => {
     setSheetKind(k);
@@ -164,7 +147,7 @@ export default function FriendsTabScreen() {
   const accept = async (friendshipId: string) => {
     try {
       await friendsApi.acceptRequest(friendshipId);
-      await loadFriendsData();
+      await fetchFriendsInbox({ withSpinner: true });
     } catch (e: unknown) {
       Alert.alert('Could not accept', formatApiError(e));
     }
@@ -173,7 +156,7 @@ export default function FriendsTabScreen() {
   const decline = async (friendshipId: string) => {
     try {
       await friendsApi.declineRequest(friendshipId);
-      await loadFriendsData();
+      await fetchFriendsInbox({ withSpinner: true });
     } catch (e: unknown) {
       Alert.alert('Could not decline', formatApiError(e));
     }
@@ -186,7 +169,7 @@ export default function FriendsTabScreen() {
     }
     try {
       await friendsApi.remove(userId);
-      await loadFriendsData();
+      await fetchFriendsInbox({ withSpinner: true });
     } catch (e: unknown) {
       Alert.alert('Could not remove', formatApiError(e));
     }
@@ -198,7 +181,7 @@ export default function FriendsTabScreen() {
     } catch (e: unknown) {
       Alert.alert('Cannot send request', formatApiError(e));
     } finally {
-      await loadFriendsData();
+      await fetchFriendsInbox({ withSpinner: true });
     }
   };
 
@@ -421,6 +404,11 @@ export default function FriendsTabScreen() {
         >
           <Ionicons name="add" size={36} color={COLORS.textInverse} />
         </TouchableOpacity>
+        {friendsLoading && friendsForStrip.length === 0 ? (
+          <View style={styles.stripPending} accessibilityLabel="Loading friends">
+            <ActivityIndicator color={COLORS.accent} />
+          </View>
+        ) : null}
         {friendsForStrip.map(({ key, user }) => (
           <TouchableOpacity
             key={key}
@@ -512,7 +500,7 @@ export default function FriendsTabScreen() {
     if (sheetKind === 'requests') {
       return (
         <ScrollView contentContainerStyle={[styles.sheetPad, { paddingBottom: 24 }]} keyboardShouldPersistTaps="handled">
-          {loading ? (
+          {friendsLoading ? (
             <ActivityIndicator color={COLORS.accent} style={{ marginVertical: 24 }} />
           ) : (
             <>
@@ -701,8 +689,8 @@ export default function FriendsTabScreen() {
         {sheetBody}
       </InboxBottomSheet>
 
-      <FriendQuickActionModal
-        visible={!!quickFriend}
+      <FriendQuickActionSheet
+        open={!!quickFriend}
         user={quickFriend}
         onClose={() => setQuickFriend(null)}
         onViewProfile={(userId) => {
@@ -757,6 +745,16 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  stripPending: {
+    width: STRIP,
+    height: STRIP,
+    borderRadius: STRIP / 2,
+    backgroundColor: COLORS.bgElevated,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchPill: {
     flexDirection: 'row',
