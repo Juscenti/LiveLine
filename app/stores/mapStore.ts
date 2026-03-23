@@ -28,12 +28,31 @@ interface MapState {
 let updateTimer: ReturnType<typeof setInterval> | null = null;
 let nearbyPollTimer: ReturnType<typeof setInterval> | null = null;
 let lastNearbySignature = '';
+let lastNearbyRequestAt: number | null = null;
+let lastNearbyRequestCoords: { latitude: number; longitude: number } | null = null;
 
 const makeNearbySignature = (friends: MapFriend[]) =>
   friends
     .map((f) => `${f.user_id}:${f.latitude.toFixed(5)}:${f.longitude.toFixed(5)}:${f.activity_status ?? ''}`)
     .sort()
     .join('|');
+
+// Haversine distance (meters) between two lat/lng points.
+const distanceMeters = (
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+) => {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371e3; // earth radius meters
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLng = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const s =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+};
 
 export const useMapStore = create<MapState>((set, get) => ({
   myLocation: null,
@@ -91,9 +110,6 @@ export const useMapStore = create<MapState>((set, get) => ({
         { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
         (p) => {
           set({ myLocation: { latitude: p.coords.latitude, longitude: p.coords.longitude } });
-          // Movement is a strong signal map context changed; sync and refetch nearby.
-          void push();
-          void get().refreshNearby();
         }
       );
       set({ watchSubscription: sub });
@@ -114,9 +130,19 @@ export const useMapStore = create<MapState>((set, get) => ({
     const loc = get().myLocation;
     if (!loc) return;
     if (get().isRefreshing) return;
+
+    const now = Date.now();
+    if (lastNearbyRequestAt && now - lastNearbyRequestAt < MAP.NEARBY_REFRESH_COOLDOWN_MS) return;
+    if (lastNearbyRequestCoords) {
+      const movedMeters = distanceMeters(loc, lastNearbyRequestCoords);
+      if (movedMeters < MAP.NEARBY_REFRESH_DISTANCE_METERS) return;
+    }
+
+    lastNearbyRequestAt = now;
+    lastNearbyRequestCoords = loc;
     set({ isRefreshing: true });
     try {
-      const res = await mapApi.getNearbyFriends(loc.latitude, loc.longitude);
+      const res = await mapApi.getNearbyFriends(loc.latitude, loc.longitude, MAP.DEFAULT_RADIUS_METERS);
       const body = res?.data as { data?: MapFriend[] } | undefined;
       const rows = body?.data;
       const nextRows = Array.isArray(rows) ? rows : [];

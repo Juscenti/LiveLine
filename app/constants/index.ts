@@ -122,15 +122,16 @@ export const FEED = {
 };
 
 export const MAP = {
-  DEFAULT_RADIUS_METERS: 5000,
+  DEFAULT_RADIUS_METERS: 50000, // 50km "large scale"
   UPDATE_INTERVAL_MS: 15000,   // 15 sec throttle
-  NEARBY_POLL_INTERVAL_MS: 8000,
+  NEARBY_POLL_INTERVAL_MS: 15000,
+  // Hard throttle so we don't hit 429s from the backend (or Mapbox indirectly).
+  NEARBY_REFRESH_COOLDOWN_MS: 15000,
+  // If the user hasn't moved much, don't refetch nearby.
+  NEARBY_REFRESH_DISTANCE_METERS: 100,
   DEFAULT_ZOOM: 14,
   DEFAULT_LAT: 37.7749,
   DEFAULT_LNG: -122.4194,
-  MAPBOX_PUBLIC_TOKEN: process.env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN ?? '',
-  MAPBOX_DARK_TILE_TEMPLATE:
-    'https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/256/{z}/{x}/{y}@2x?access_token={token}',
 };
 
 export const PAGINATION = {

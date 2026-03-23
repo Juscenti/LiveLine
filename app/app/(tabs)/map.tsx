@@ -3,10 +3,10 @@
 // ============================================================
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, Platform, Pressable, AppState } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, UrlTile } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useFocusEffect } from '@react-navigation/native';
 import { useMapStore } from '@/stores/mapStore';
-import { COLORS, SPACING, FONTS, RADIUS, MAP } from '@/constants';
+import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
 import FriendMapMarker from '@/components/map/FriendMapMarker';
 import FriendMapSheet from '@/components/map/FriendMapSheet';
 import type { MapFriend } from '@/types';
@@ -90,18 +90,14 @@ export default function MapScreen() {
           style={styles.map}
           provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
           initialRegion={region as any}
+          minZoomLevel={4}
+          maxZoomLevel={17}
           showsUserLocation={false}
           onPress={() => {
             if (selectedFriendId) selectFriend(null);
           }}
+          customMapStyle={darkMapStyle}
         >
-          <UrlTile
-            zIndex={0}
-            flipY={false}
-            maximumZ={20}
-            urlTemplate={MAPBOX_TILE_URL}
-            shouldReplaceMapContent
-          />
           {/* Self marker */}
           {myLocation && (
             <Marker coordinate={myLocation} anchor={{ x: 0.5, y: 0.5 }}>
@@ -144,23 +140,28 @@ export default function MapScreen() {
         />
       )}
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={{ flex: 1 }}>
+      {/* Floating top controls */}
+      <View style={styles.topControls}>
+        <View style={styles.infoCard}>
           <Text style={styles.title}>Live Map</Text>
-          <Text style={styles.count}>
-            {nearbyFriends.length} nearby{isRefreshing ? ' • syncing...' : ''}
+          <Text style={styles.count}>{nearbyFriends.length} nearby</Text>
+          <Text style={styles.updatedAt}>
+            {isRefreshing
+              ? 'Syncing...'
+              : lastNearbyUpdatedAt
+                ? 'Updated just now'
+                : 'Waiting for nearby updates'}
           </Text>
-          {lastNearbyUpdatedAt ? (
-            <Text style={styles.updatedAt}>Updated just now</Text>
-          ) : null}
         </View>
-        <TouchableOpacity style={styles.headerBtn} onPress={centerOnMe}>
-          <Text style={styles.headerBtnText}>Center</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.headerBtn, { backgroundColor: COLORS.bgElevated }]} onPress={refreshNearby}>
-          <Text style={styles.headerBtnText}>Refresh</Text>
-        </TouchableOpacity>
+
+        <View style={styles.actionStack}>
+          <TouchableOpacity style={styles.centerBtn} onPress={centerOnMe} activeOpacity={0.9}>
+            <Text style={styles.centerBtnText}>Center</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.refreshBtn} onPress={refreshNearby} activeOpacity={0.9}>
+            <Text style={styles.refreshBtnText}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Permission prompt */}
@@ -189,32 +190,62 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.52)',
     zIndex: 8,
   },
-  header: {
+  topControls: {
     position: 'absolute',
     top: 56,
     left: SPACING.base,
     right: SPACING.base,
     zIndex: 20,
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: COLORS.bgCard + 'E0',
-    padding: SPACING.md,
-    borderRadius: RADIUS.lg,
+    gap: SPACING.sm,
+  },
+  infoCard: {
+    flex: 1,
+    backgroundColor: 'rgba(18,18,18,0.86)',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.xl,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: 'rgba(255,255,255,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  actionStack: {
+    width: 108,
+    gap: SPACING.sm,
+  },
+  centerBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: 16,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: COLORS.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  refreshBtn: {
+    backgroundColor: 'rgba(20,20,20,0.88)',
+    borderRadius: 16,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   title: { fontSize: FONTS.sizes.md, fontWeight: FONTS.weights.bold, color: COLORS.textPrimary },
   count: { fontSize: FONTS.sizes.sm, color: COLORS.accent },
-  updatedAt: { marginTop: 2, fontSize: FONTS.sizes.xs, color: COLORS.textTertiary },
-  headerBtn: {
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginLeft: 10,
-  },
-  headerBtnText: { color: COLORS.textInverse, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.xs },
+  updatedAt: { marginTop: 2, fontSize: FONTS.sizes.xs, color: COLORS.textSecondary },
+  centerBtnText: { color: COLORS.textInverse, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.sm },
+  refreshBtnText: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.sm },
   selfMarker: {
     width: 24, height: 24, borderRadius: 12,
     backgroundColor: COLORS.accent + '30',
@@ -230,7 +261,13 @@ const styles = StyleSheet.create({
   loadingMapTitle: { color: COLORS.textSecondary, fontWeight: FONTS.weights.semibold },
 });
 
-const MAPBOX_TILE_URL = MAP.MAPBOX_DARK_TILE_TEMPLATE.replace(
-  '{token}',
-  encodeURIComponent(MAP.MAPBOX_PUBLIC_TOKEN),
-);
+const darkMapStyle = [
+  { elementType: 'geometry', stylers: [{ color: '#0f0f0f' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#555555' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0a0a0a' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1c1c1c' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#141414' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050505' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+];
