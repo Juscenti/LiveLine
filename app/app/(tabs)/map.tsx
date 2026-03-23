@@ -1,11 +1,12 @@
 // ============================================================
 // app/(tabs)/map.tsx — Live map
 // ============================================================
-import { useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Platform, Pressable } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { View, StyleSheet, Text, TouchableOpacity, Platform, Pressable, AppState } from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE, UrlTile } from 'react-native-maps';
+import { useFocusEffect } from '@react-navigation/native';
 import { useMapStore } from '@/stores/mapStore';
-import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
+import { COLORS, SPACING, FONTS, RADIUS, MAP } from '@/constants';
 import FriendMapMarker from '@/components/map/FriendMapMarker';
 import FriendMapSheet from '@/components/map/FriendMapSheet';
 import type { MapFriend } from '@/types';
@@ -16,8 +17,9 @@ export default function MapScreen() {
     myLocation, nearbyFriends, selectedFriendId,
     startTracking, stopTracking,
     selectFriend, locationPermission,
-    refreshNearby,
+    refreshNearby, isRefreshing, lastNearbyUpdatedAt,
   } = useMapStore();
+  const hasCenteredInitiallyRef = useRef(false);
   useEffect(() => {
     startTracking();
     return () => stopTracking();
@@ -36,12 +38,31 @@ export default function MapScreen() {
   }, [myLocation]);
 
   useEffect(() => {
-    // If the region is uncontrolled (initialRegion), it can keep using defaults.
-    // Animate to the real device location once we have it.
-    if (region && mapRef.current) {
+    // Set camera once when location is first available; don't force recenter
+    // on every gps tick so users can explore the map smoothly.
+    if (region && mapRef.current && !hasCenteredInitiallyRef.current) {
+      hasCenteredInitiallyRef.current = true;
       mapRef.current.animateToRegion(region, 600);
     }
   }, [region]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Refresh immediately when the user navigates to map tab.
+      void refreshNearby();
+      return undefined;
+    }, [refreshNearby]),
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        // Foreground return can include friend/location changes while app was backgrounded.
+        void refreshNearby();
+      }
+    });
+    return () => sub.remove();
+  }, [refreshNearby]);
 
   const centerOnMe = () => {
     if (!region || !mapRef.current) return;
@@ -68,10 +89,19 @@ export default function MapScreen() {
           ref={mapRef}
           style={styles.map}
           provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-          region={region as any}
+          initialRegion={region as any}
           showsUserLocation={false}
-          customMapStyle={darkMapStyle}
+          onPress={() => {
+            if (selectedFriendId) selectFriend(null);
+          }}
         >
+          <UrlTile
+            zIndex={0}
+            flipY={false}
+            maximumZ={20}
+            urlTemplate={MAPBOX_TILE_URL}
+            shouldReplaceMapContent
+          />
           {/* Self marker */}
           {myLocation && (
             <Marker coordinate={myLocation} anchor={{ x: 0.5, y: 0.5 }}>
@@ -118,7 +148,12 @@ export default function MapScreen() {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Live Map</Text>
-          <Text style={styles.count}>{nearbyFriends.length} nearby</Text>
+          <Text style={styles.count}>
+            {nearbyFriends.length} nearby{isRefreshing ? ' • syncing...' : ''}
+          </Text>
+          {lastNearbyUpdatedAt ? (
+            <Text style={styles.updatedAt}>Updated just now</Text>
+          ) : null}
         </View>
         <TouchableOpacity style={styles.headerBtn} onPress={centerOnMe}>
           <Text style={styles.headerBtnText}>Center</Text>
@@ -171,6 +206,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: FONTS.sizes.md, fontWeight: FONTS.weights.bold, color: COLORS.textPrimary },
   count: { fontSize: FONTS.sizes.sm, color: COLORS.accent },
+  updatedAt: { marginTop: 2, fontSize: FONTS.sizes.xs, color: COLORS.textTertiary },
   headerBtn: {
     backgroundColor: COLORS.accent,
     borderRadius: RADIUS.md,
@@ -194,14 +230,7 @@ const styles = StyleSheet.create({
   loadingMapTitle: { color: COLORS.textSecondary, fontWeight: FONTS.weights.semibold },
 });
 
-// Mapbox dark style equivalent for react-native-maps
-const darkMapStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#0f0f0f' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#555555' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#0a0a0a' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1c1c1c' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#141414' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050505' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-];
+const MAPBOX_TILE_URL = MAP.MAPBOX_DARK_TILE_TEMPLATE.replace(
+  '{token}',
+  encodeURIComponent(MAP.MAPBOX_PUBLIC_TOKEN),
+);

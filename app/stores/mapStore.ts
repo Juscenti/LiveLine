@@ -12,6 +12,8 @@ interface MapState {
   nearbyFriends: MapFriend[];
   selectedFriendId: string | null;
   isTracking: boolean;
+  isRefreshing: boolean;
+  lastNearbyUpdatedAt: number | null;
   locationPermission: 'granted' | 'denied' | 'undetermined';
   watchSubscription: Location.LocationSubscription | null;
 
@@ -24,12 +26,22 @@ interface MapState {
 }
 
 let updateTimer: ReturnType<typeof setInterval> | null = null;
+let nearbyPollTimer: ReturnType<typeof setInterval> | null = null;
+let lastNearbySignature = '';
+
+const makeNearbySignature = (friends: MapFriend[]) =>
+  friends
+    .map((f) => `${f.user_id}:${f.latitude.toFixed(5)}:${f.longitude.toFixed(5)}:${f.activity_status ?? ''}`)
+    .sort()
+    .join('|');
 
 export const useMapStore = create<MapState>((set, get) => ({
   myLocation: null,
   nearbyFriends: [],
   selectedFriendId: null,
   isTracking: false,
+  isRefreshing: false,
+  lastNearbyUpdatedAt: null,
   locationPermission: 'undetermined',
   watchSubscription: null,
 
@@ -60,21 +72,28 @@ export const useMapStore = create<MapState>((set, get) => ({
       if (!loc) return;
       try {
         await mapApi.updateLocation({ latitude: loc.latitude, longitude: loc.longitude });
-        await get().refreshNearby();
       } catch {
         // Network / server — non-fatal for map UX
       }
     };
 
     await push();
+    await get().refreshNearby();
     if (updateTimer) clearInterval(updateTimer);
     updateTimer = setInterval(push, MAP.UPDATE_INTERVAL_MS);
+    if (nearbyPollTimer) clearInterval(nearbyPollTimer);
+    nearbyPollTimer = setInterval(() => {
+      void get().refreshNearby();
+    }, MAP.NEARBY_POLL_INTERVAL_MS);
 
     try {
       const sub = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
         (p) => {
           set({ myLocation: { latitude: p.coords.latitude, longitude: p.coords.longitude } });
+          // Movement is a strong signal map context changed; sync and refetch nearby.
+          void push();
+          void get().refreshNearby();
         }
       );
       set({ watchSubscription: sub });
@@ -87,19 +106,37 @@ export const useMapStore = create<MapState>((set, get) => ({
     const { watchSubscription } = get();
     watchSubscription?.remove();
     if (updateTimer) clearInterval(updateTimer);
-    set({ isTracking: false, watchSubscription: null });
+    if (nearbyPollTimer) clearInterval(nearbyPollTimer);
+    set({ isTracking: false, watchSubscription: null, isRefreshing: false });
   },
 
   refreshNearby: async () => {
     const loc = get().myLocation;
     if (!loc) return;
+    if (get().isRefreshing) return;
+    set({ isRefreshing: true });
     try {
       const res = await mapApi.getNearbyFriends(loc.latitude, loc.longitude);
       const body = res?.data as { data?: MapFriend[] } | undefined;
       const rows = body?.data;
-      set({ nearbyFriends: Array.isArray(rows) ? rows : [] });
+      const nextRows = Array.isArray(rows) ? rows : [];
+      const nextSignature = makeNearbySignature(nextRows);
+      const currentSelected = get().selectedFriendId;
+      const selectedStillExists = !currentSelected || nextRows.some((f) => f.user_id === currentSelected);
+
+      // Only commit nearby list updates when the payload actually changed.
+      if (nextSignature !== lastNearbySignature || !selectedStillExists) {
+        lastNearbySignature = nextSignature;
+        set({
+          nearbyFriends: nextRows,
+          selectedFriendId: selectedStillExists ? currentSelected : null,
+          lastNearbyUpdatedAt: Date.now(),
+        });
+      }
     } catch {
-      set({ nearbyFriends: [] });
+      // Preserve previous friend markers if refresh fails to avoid a flashing/empty map.
+    } finally {
+      set({ isRefreshing: false });
     }
   },
 

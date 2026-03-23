@@ -3,6 +3,10 @@
   "private": true,
   "workspaces": ["app", "backend"],
   "scripts": {
+    "start": "yarn workspace app start",
+    "ios": "yarn workspace app ios",
+    "android": "yarn workspace app android",
+    "web": "yarn workspace app web",
     "app": "yarn workspace app start",
     "backend": "yarn workspace backend dev",
     "dev": "concurrently \"yarn backend\" \"yarn app\""
