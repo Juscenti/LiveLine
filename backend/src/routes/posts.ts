@@ -94,14 +94,12 @@ export async function createPost(req: AuthRequest, res: Response) {
   }
 
   let { mediaUrl, thumbnailUrl, durationSec, mediaWidth, mediaHeight } = processed;
-  // Prefer dimensions extracted from the actual uploaded video file.
-  // Only fall back to client-provided dimensions when extraction failed.
-  if (mediaType === 'video') {
-    const backendValid = mediaWidth != null && mediaHeight != null;
-    if (!backendValid && clientMediaW != null && clientMediaH != null) {
-      mediaWidth = clientMediaW;
-      mediaHeight = clientMediaH;
-    }
+  // For videos, treat the client-measured dimensions as the source of truth.
+  // This matches what the user framed in the in-app camera preview (and avoids
+  // server-side rotation metadata edge cases).
+  if (mediaType === 'video' && clientMediaW != null && clientMediaH != null) {
+    mediaWidth = clientMediaW;
+    mediaHeight = clientMediaH;
   }
 
   const rowBase = {
