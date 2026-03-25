@@ -28,6 +28,7 @@ type VideoProbeResult = {
   mediaWidth: number | null;
   mediaHeight: number | null;
   durationSec: number | null;
+  rotationDegrees: number | null;
 };
 
 function parseRotationDegrees(v: unknown): number | null {
@@ -112,9 +113,64 @@ async function probeVideo(buffer: Buffer, mimetype: string): Promise<VideoProbeR
       mediaWidth: width,
       mediaHeight: height,
       durationSec: duration,
+      rotationDegrees: rotation,
     };
   } finally {
     await fs.unlink(tmpPath).catch(() => {});
+  }
+}
+
+async function extractFirstFrameThumbnailJpeg(
+  buffer: Buffer,
+  mimetype: string,
+  rotationDegrees: number | null,
+): Promise<Buffer> {
+  const tmpExt =
+    mimetype.includes('mp4') ? 'mp4' : mimetype.includes('quicktime') ? 'mov' : mimetype.includes('webm') ? 'webm' : 'mp4';
+
+  const tmpVideoPath = path.join(os.tmpdir(), `liveline-thumb-${uuidv4()}.${tmpExt}`);
+  const tmpFramePath = path.join(os.tmpdir(), `liveline-thumb-${uuidv4()}.jpg`);
+  await fs.writeFile(tmpVideoPath, buffer);
+
+  try {
+    ffmpeg.setFfmpegPath(ffmpegStatic as unknown as string);
+    ffmpeg.setFfprobePath(ffprobeStatic.path);
+
+    const scaleFilter =
+      "scale='if(gt(a,1),360,-2)':'if(gt(a,1),-2,360)':force_original_aspect_ratio=decrease";
+
+    // Map ffprobe rotation degrees to ffmpeg transpose filters.
+    // - 90  => rotate 90° clockwise
+    // - 270 => rotate 90° counterclockwise
+    // (we also handle -90/-270 because ffprobe sometimes reports negatives)
+    let transposeFilter = '';
+    if (rotationDegrees != null) {
+      const r = rotationDegrees;
+      if (r === 90) transposeFilter = 'transpose=dir=1';
+      if (r === -90 || r === 270) transposeFilter = 'transpose=dir=2';
+      if (r === 180 || r === -180) transposeFilter = 'rotate=PI';
+    }
+
+    const vf = transposeFilter ? `${transposeFilter},${scaleFilter}` : scaleFilter;
+
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(tmpVideoPath)
+        // Do not auto-apply rotation metadata; we apply it explicitly above.
+        .inputOptions(['-noautorotate'])
+        .seekInput(0)
+        .frames(1)
+        .videoFilters(vf)
+        .outputOptions(['-q:v', '4'])
+        .output(tmpFramePath)
+        .on('end', () => resolve())
+        .on('error', (err) => reject(err))
+        .run();
+    });
+
+    return await fs.readFile(tmpFramePath);
+  } finally {
+    await fs.unlink(tmpVideoPath).catch(() => {});
+    await fs.unlink(tmpFramePath).catch(() => {});
   }
 }
 
@@ -193,9 +249,30 @@ export const mediaService = {
       probe = null;
     }
 
+    // Best-effort: generate a real thumbnail from the first frame.
+    // This prevents feed tiles from falling back to the bland play-icon placeholder.
+    let videoThumbnailUrl: string | null = null;
+    try {
+      const thumbKey = `${baseKey}_thumb.jpg`;
+      const thumbBuffer = await extractFirstFrameThumbnailJpeg(
+        file.buffer,
+        file.mimetype,
+        probe?.rotationDegrees ?? null,
+      );
+
+      await supabaseAdmin.storage
+        .from('thumbnails')
+        .upload(thumbKey, thumbBuffer, { contentType: 'image/jpeg', upsert: true });
+
+      const { data: thumbPublic } = supabaseAdmin.storage.from('thumbnails').getPublicUrl(thumbKey);
+      videoThumbnailUrl = thumbPublic.publicUrl;
+    } catch {
+      videoThumbnailUrl = null;
+    }
+
     return {
       mediaUrl: mediaPublic.publicUrl,
-      thumbnailUrl: null,
+      thumbnailUrl: videoThumbnailUrl,
       durationSec: probe?.durationSec ?? 5,
       mediaWidth: probe?.mediaWidth ?? null,
       mediaHeight: probe?.mediaHeight ?? null,
