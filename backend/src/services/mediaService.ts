@@ -163,17 +163,21 @@ export const mediaService = {
 
     const { data: mediaPublic } = supabaseAdmin.storage.from('posts-processed').getPublicUrl(mediaKey);
 
-    // IMPORTANT: temporarily bypass ffprobe-based metadata extraction while
-    // we validate video playback correctness on the client.
-    // Once videos reliably decode again, we'll re-enable ffprobe extraction.
+    // Extract real upright/display dimensions for correct masonry aspect.
+    // If extraction fails, return null dims; the client will fall back.
+    let probe: VideoProbeResult | null = null;
+    try {
+      probe = await probeVideo(file.buffer, file.mimetype);
+    } catch {
+      probe = null;
+    }
+
     return {
       mediaUrl: mediaPublic.publicUrl,
       thumbnailUrl: null,
-      // DB constraint: for video posts, duration_sec must be present and <= 5.
-      // We keep the old safe placeholder so inserts succeed while we debug playback.
-      durationSec: 5,
-      mediaWidth: null,
-      mediaHeight: null,
+      durationSec: probe?.durationSec ?? 5,
+      mediaWidth: probe?.mediaWidth ?? null,
+      mediaHeight: probe?.mediaHeight ?? null,
     };
   },
 };
