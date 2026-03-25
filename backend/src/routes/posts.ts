@@ -87,25 +87,22 @@ export async function createPost(req: AuthRequest, res: Response) {
 
   let processed: Awaited<ReturnType<typeof mediaService.processAndUpload>>;
   try {
-    processed = await mediaService.processAndUpload(
-      file as any,
-      req.userId!,
-      mediaType,
-      clientMediaW,
-      clientMediaH,
-    );
+    processed = await mediaService.processAndUpload(file as any, req.userId!, mediaType);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Media processing failed';
     return res.status(500).json({ error: msg, data: null });
   }
 
   let { mediaUrl, thumbnailUrl, durationSec, mediaWidth, mediaHeight } = processed;
-  // For videos, prefer the client-provided dimensions whenever available.
-  // The in-app camera preview produces the correct upright aspect ratio,
-  // while ffprobe rotation metadata can be inconsistent across iOS encoders.
-  if (mediaType === 'video' && clientMediaW != null && clientMediaH != null) {
-    mediaWidth = clientMediaW;
-    mediaHeight = clientMediaH;
+  // Prefer dimensions extracted from the actual uploaded video file (ffprobe).
+  // Only fall back to client-provided dimensions when extraction failed.
+  if (mediaType === 'video') {
+    const clientValid = clientMediaW != null && clientMediaH != null;
+    if (clientValid) {
+      mediaWidth = clientMediaW;
+      mediaHeight = clientMediaH;
+    }
+    // else: keep whatever ffprobe returned (already set above)
   }
 
   const rowBase = {
