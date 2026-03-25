@@ -159,25 +159,19 @@ export const mediaService = {
 
     await supabaseAdmin.storage
       .from('posts-processed')
-      .upload(mediaKey, file.buffer, { contentType: file.mimetype, upsert: true });
+      .upload(mediaKey, file.buffer, { contentType: 'video/mp4', upsert: true });
 
     const { data: mediaPublic } = supabaseAdmin.storage.from('posts-processed').getPublicUrl(mediaKey);
 
-    // Extract real upright/display dimensions for correct masonry aspect.
-    // If extraction fails, we return null dims; caller will decide fallback.
-    let probe: VideoProbeResult | null = null;
-    try {
-      probe = await probeVideo(file.buffer, file.mimetype);
-    } catch {
-      probe = null;
-    }
-
+    // IMPORTANT: temporarily bypass ffprobe-based metadata extraction while
+    // we validate video playback correctness on the client.
+    // Once videos reliably decode again, we'll re-enable ffprobe extraction.
     return {
       mediaUrl: mediaPublic.publicUrl,
       thumbnailUrl: null,
-      durationSec: probe?.durationSec ?? null,
-      mediaWidth: probe?.mediaWidth ?? null,
-      mediaHeight: probe?.mediaHeight ?? null,
+      durationSec: null,
+      mediaWidth: null,
+      mediaHeight: null,
     };
   },
 };
