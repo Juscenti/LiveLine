@@ -87,6 +87,27 @@ async function probeVideo(buffer: Buffer, mimetype: string): Promise<VideoProbeR
       [width, height] = [height, width];
     }
 
+    // Debug: inspect what ffprobe thinks about the stream and our rotation-based swap.
+    // Keep this local/dev-only to avoid spamming production logs.
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[probeVideo] full videoStream:',
+        JSON.stringify(videoStream, null, 2),
+      );
+      // eslint-disable-next-line no-console
+      console.log('[probeVideo] rotation tag:', videoStream?.tags?.rotate);
+      // eslint-disable-next-line no-console
+      console.log(
+        '[probeVideo] side_data_list:',
+        JSON.stringify(videoStream?.side_data_list, null, 2),
+      );
+      // eslint-disable-next-line no-console
+      console.log('[probeVideo] raw w/h:', videoStream?.width, videoStream?.height);
+      // eslint-disable-next-line no-console
+      console.log('[probeVideo] after swap w/h:', width, height);
+    }
+
     return {
       mediaWidth: width,
       mediaHeight: height,
