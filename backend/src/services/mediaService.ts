@@ -169,7 +169,9 @@ export const mediaService = {
     return {
       mediaUrl: mediaPublic.publicUrl,
       thumbnailUrl: null,
-      durationSec: null,
+      // DB constraint: for video posts, duration_sec must be present and <= 5.
+      // We keep the old safe placeholder so inserts succeed while we debug playback.
+      durationSec: 5,
       mediaWidth: null,
       mediaHeight: null,
     };
