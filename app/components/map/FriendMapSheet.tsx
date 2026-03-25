@@ -115,12 +115,12 @@ export default function FriendMapSheet({ friend, onClose }: Props) {
       const loop = Animated.loop(
         Animated.sequence([
           Animated.parallel([
-            Animated.timing(pulseScale,   { toValue: 1.22, duration: 1200, easing: Easing.inOut(Easing.sine), useNativeDriver: true }),
-            Animated.timing(pulseOpacity, { toValue: 0,    duration: 1200, easing: Easing.inOut(Easing.sine), useNativeDriver: true }),
+            Animated.timing(pulseScale,   { toValue: 1.22, duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+            Animated.timing(pulseOpacity, { toValue: 0,    duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
           ]),
           Animated.parallel([
-            Animated.timing(pulseScale,   { toValue: 1,    duration: 1200, easing: Easing.inOut(Easing.sine), useNativeDriver: true }),
-            Animated.timing(pulseOpacity, { toValue: 0.55, duration: 1200, easing: Easing.inOut(Easing.sine), useNativeDriver: true }),
+            Animated.timing(pulseScale,   { toValue: 1,    duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+            Animated.timing(pulseOpacity, { toValue: 0.55, duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
           ]),
         ]),
       );
