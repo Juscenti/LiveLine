@@ -1,0 +1,152 @@
+================================================================================
+FULL CHAT EXPORT
+================================================================================
+
+------------------------------------------------------------------------
+USER: [Sent 3 code files: app/camera.tsx, app/(tabs)/feed.tsx,
+        components/feed/PostCard.tsx]
+
+"ill send you 3 very long lines of code, tell me what they do and
+how they interact with each other"
+------------------------------------------------------------------------
+ASSISTANT:
+
+These are the core components of a short-form video social app.
+
+1. camera.tsx — Capture & Upload
+   - Takes photos/records videos (pinch-to-zoom, flip camera)
+   - Gallery picker
+   - Preview + caption editor
+   - Uploads to backend with orientation-corrected aspect ratio metadata
+   - Key: snapshots device orientation at record-start to fix iOS raw sensor dims
+
+2. feed.tsx — Pinterest-style Masonry Feed
+   - 2-column FlashList grid
+   - Only the TOPMOST visible video(s) autoplay
+   - If 2 side-by-side videos, they alternate every 4 seconds
+   - Infinite scroll
+
+3. PostCard.tsx — Individual Tile
+   - Shows thumbnail or plays video when shouldPlay=true
+   - Calculates tile height from aspect ratio
+   - Duration badge, expiry countdown, author name
+   - Delete (owner) / options menu
+
+HOW THEY INTERACT:
+
+User taps + → camera.tsx opens
+User records/picks → preview → post
+postsApi.create() → prependPost() → feed re-renders with new post at top
+
+Feed detects topmost visible video via onViewableItemsChanged
+→ passes shouldPlay=true to that PostCard
+→ PostCard plays video
+User scrolls → new topmost detected → playback shifts
+
+Feed controls WHAT plays. PostCard renders the playback.
+Camera feeds new content into the store.
+
+------------------------------------------------------------------------
+USER: "alright now im having an issue right, an issue where when i
+record a video(vertically), and post it, its cropped down to a
+horizontal point, not smooshed, but cropped, so its not showing
+the full scale of the video, images however, do not have this
+issue, why not"
+------------------------------------------------------------------------
+ASSISTANT:
+
+Dimension metadata mismatch between what's stored and what the feed
+uses to calculate tile height.
+
+Root cause chain:
+  camera.tsx sends correct portrait dims (e.g. w=9, h=16)
+  → backend receives them
+  → but PostCard.tsx for videos prefers post.media_width/media_height
+    from the DB FIRST
+  → if DB has wrong/swapped dims → aspect = landscape → tile too short
+    → video appears cropped
+
+Why images don't have this issue:
+  Images: return decodedAspect ?? getPostMediaAspectRatio(post)
+  → skips DB dims entirely, measures the actual file → always correct
+
+  Videos: if (w > 0 && h > 0) return normalizeAspectFromPixels(w, h)
+  → trusts DB first → if DB is wrong, tile is wrong
+
+Fix: log the API response after posting:
+  const { data } = await postsApi.create(form);
+  console.log('Saved dims:', data.data.media_width, data.data.media_height);
+
+Check whether the backend is actually saving the right values.
+
+------------------------------------------------------------------------
+USER: [Sent posts.ts router + mediaService.ts]
+
+"well im not sure what backend to check, BUTT: [Supabase logs showing
+successful upload]... this is the mediaservice mb"
+------------------------------------------------------------------------
+ASSISTANT:
+
+The Supabase logs confirm the file uploads fine. The issue is ffprobe
+not catching the iOS rotation metadata correctly.
+
+Problem chain:
+  iOS records portrait video but stores rotation as metadata tag
+  (rotation=90), not by physically rotating pixels
+  → ffprobe reads raw stream: 1920×1080 (landscape)
+  → backend stores mediaWidth=1920, mediaHeight=1080
+  → PostCard calculates aspect = 1.77 (landscape)
+  → tile rendered wide and short → video cropped
+
+Your rotation correction code checks side_data_list for a .rotation
+property, but iOS 16+ stores a Display Matrix which fluent-ffmpeg may
+not expose as a simple integer. Add this log to confirm:
+
+  console.log('VIDEO STREAM:', JSON.stringify(videoStream, null, 2));
+
+------------------------------------------------------------------------
+USER: [Sent mediaService.ts]
+
+"this is the mediaservice mb"
+------------------------------------------------------------------------
+ASSISTANT:
+
+The rotation detection logic looks right in theory but fails on modern
+iOS for two reasons:
+
+1. iOS 16+ encodes rotation as a Display Matrix, not tags.rotate.
+   Your side_data_list check may not find .rotation there.
+
+2. Newer iPhones (HEVC pipeline) sometimes report rotation=0 entirely
+   but embed orientation in the matrix — so your swap never triggers.
+
+THE FIX — flip the priority in posts.ts:
+
+CURRENT (wrong priority):
+  if (mediaType === 'video') {
+    const backendValid = mediaWidth != null && mediaHeight != null;
+    if (!backendValid && clientMediaW != null && clientMediaH != null) {
+      mediaWidth = clientMediaW;
+      mediaHeight = clientMediaH;
+    }
+  }
+
+FIXED (trust client first):
+  if (mediaType === 'video') {
+    const clientValid = clientMediaW != null && clientMediaH != null;
+    const backendValid = mediaWidth != null && mediaHeight != null;
+    if (clientValid) {
+      mediaWidth = clientMediaW;   // client already corrected orientation
+      mediaHeight = clientMediaH;
+    } else if (backendValid) {
+      mediaWidth = mediaWidth;     // ffprobe fallback (may be wrong)
+      mediaHeight = mediaHeight;
+    }
+  }
+
+camera.tsx already does orientation correction correctly at record time.
+Your backend is just overriding it with unreliable ffprobe values.
+
+================================================================================
+END OF CHAT
+================================================================================

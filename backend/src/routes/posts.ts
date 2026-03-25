@@ -94,12 +94,21 @@ export async function createPost(req: AuthRequest, res: Response) {
   }
 
   let { mediaUrl, thumbnailUrl, durationSec, mediaWidth, mediaHeight } = processed;
-  // For videos, treat the client-measured dimensions as the source of truth.
-  // This matches what the user framed in the in-app camera preview (and avoids
-  // server-side rotation metadata edge cases).
+  // For videos, prefer the client-provided dimensions whenever available.
+  // The in-app camera preview produces the correct upright aspect ratio,
+  // while ffprobe rotation metadata can be inconsistent across iOS encoders.
   if (mediaType === 'video' && clientMediaW != null && clientMediaH != null) {
     mediaWidth = clientMediaW;
     mediaHeight = clientMediaH;
+  }
+
+  // DB guardrail: some Supabase deployments enforce NOT-NULL checks for video fields.
+  // If ffprobe fails (or client didn't provide dimensions), keep the insert valid so
+  // we don't 500 on transient media probing issues.
+  if (mediaType === 'video') {
+    durationSec = durationSec ?? 5; // app enforces MAX_DURATION_SEC = 5s
+    mediaWidth = mediaWidth ?? 9;
+    mediaHeight = mediaHeight ?? 16;
   }
 
   const rowBase = {
@@ -135,7 +144,16 @@ export async function createPost(req: AuthRequest, res: Response) {
       .single());
   }
 
-  if (error) return res.status(500).json({ error: error.message, data: null });
+  if (error) {
+    const payload: Record<string, unknown> = { error: error.message, data: null };
+    if (process.env.NODE_ENV !== 'production') {
+      payload.details = (error as any).details;
+      payload.hint = (error as any).hint;
+      payload.constraint = (error as any).constraint;
+      payload.code = (error as any).code;
+    }
+    return res.status(500).json(payload);
+  }
   return res.status(201).json({ data, error: null });
 }
 
