@@ -108,9 +108,22 @@ export default function PostCard({ post, width, onPress, shouldPlay = false }: P
     if (isVideo) {
       const w = Number(post.media_width);
       const h = Number(post.media_height);
-      if (w > 0 && h > 0) return normalizeAspectFromPixels(w, h);
-      if (decodedAspect != null) return decodedAspect;
-      if (trackAspect != null) return trackAspect;
+      const dbAspect = w > 0 && h > 0 ? normalizeAspectFromPixels(w, h) : null;
+
+      // Measure from the actual decoded video. This is the closest thing to
+      // "read the real format" at render time.
+      const measuredAspect = trackAspect ?? decodedAspect;
+
+      // If DB and measured disagree materially, prefer measured to avoid
+      // rotation/metadata mismatches.
+      if (dbAspect != null && measuredAspect != null) {
+        const dist = Math.abs(Math.log(dbAspect / measuredAspect));
+        if (dist > 0.12) return measuredAspect;
+        return dbAspect;
+      }
+
+      if (measuredAspect != null) return measuredAspect;
+      if (dbAspect != null) return dbAspect;
       return 9 / 16; // last resort (legacy / no dims)
     }
     return decodedAspect ?? getPostMediaAspectRatio(post);

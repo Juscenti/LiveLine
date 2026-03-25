@@ -171,8 +171,17 @@ export default function PostDetailScreen() {
     ? (() => {
         const w = Number(post.media_width);
         const h = Number(post.media_height);
-        if (w > 0 && h > 0) return normalizeAspectFromPixels(w, h);
-        if (videoNaturalAspect != null) return videoNaturalAspect;
+        const dbAspect = w > 0 && h > 0 ? normalizeAspectFromPixels(w, h) : null;
+        const measuredAspect = videoNaturalAspect;
+
+        if (dbAspect != null && measuredAspect != null) {
+          const dist = Math.abs(Math.log(dbAspect / measuredAspect));
+          if (dist > 0.12) return measuredAspect;
+          return dbAspect;
+        }
+
+        if (measuredAspect != null) return measuredAspect;
+        if (dbAspect != null) return dbAspect;
         return 9 / 16;
       })()
     : (imageNaturalAspect ?? getPostMediaAspectRatio(post));

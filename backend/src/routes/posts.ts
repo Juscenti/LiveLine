@@ -87,7 +87,13 @@ export async function createPost(req: AuthRequest, res: Response) {
 
   let processed: Awaited<ReturnType<typeof mediaService.processAndUpload>>;
   try {
-    processed = await mediaService.processAndUpload(file as any, req.userId!, mediaType);
+    processed = await mediaService.processAndUpload(
+      file as any,
+      req.userId!,
+      mediaType,
+      clientMediaW,
+      clientMediaH,
+    );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Media processing failed';
     return res.status(500).json({ error: msg, data: null });
@@ -100,15 +106,6 @@ export async function createPost(req: AuthRequest, res: Response) {
   if (mediaType === 'video' && clientMediaW != null && clientMediaH != null) {
     mediaWidth = clientMediaW;
     mediaHeight = clientMediaH;
-  }
-
-  // DB guardrail: some Supabase deployments enforce NOT-NULL checks for video fields.
-  // If ffprobe fails (or client didn't provide dimensions), keep the insert valid so
-  // we don't 500 on transient media probing issues.
-  if (mediaType === 'video') {
-    durationSec = durationSec ?? 5; // app enforces MAX_DURATION_SEC = 5s
-    mediaWidth = mediaWidth ?? 9;
-    mediaHeight = mediaHeight ?? 16;
   }
 
   const rowBase = {
@@ -144,16 +141,7 @@ export async function createPost(req: AuthRequest, res: Response) {
       .single());
   }
 
-  if (error) {
-    const payload: Record<string, unknown> = { error: error.message, data: null };
-    if (process.env.NODE_ENV !== 'production') {
-      payload.details = (error as any).details;
-      payload.hint = (error as any).hint;
-      payload.constraint = (error as any).constraint;
-      payload.code = (error as any).code;
-    }
-    return res.status(500).json(payload);
-  }
+  if (error) return res.status(500).json({ error: error.message, data: null });
   return res.status(201).json({ data, error: null });
 }
 
