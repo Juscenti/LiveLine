@@ -7,6 +7,7 @@ import { supabase } from '@/services/supabase';
 import { authApi, wakeBackend } from '@/services/api';
 import { clearAccessToken, setAccessToken } from '@/services/accessTokenStore';
 import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
+import { useNotificationStore } from '@/stores/notificationStore';
 import type { User } from '@/types';
 
 /** Only register Supabase listener once (initialize must not stack listeners on re-entry). */
@@ -72,6 +73,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         if (event === 'SIGNED_OUT') {
           clearAccessToken();
+          const uid = get().user?.id;
+          if (uid) void useNotificationStore.getState().clearCachedForUser(uid);
+          useNotificationStore.getState().reset();
           set({ user: null, session: null });
           return;
         }
@@ -176,6 +180,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    const uid = get().user?.id;
     try {
       await supabase.auth.signOut();
     } catch {
@@ -183,6 +188,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     clearAccessToken();
     useFriendsInboxStore.getState().clear();
+    if (uid) void useNotificationStore.getState().clearCachedForUser(uid);
+    useNotificationStore.getState().reset();
     set({ user: null, session: null });
   },
 

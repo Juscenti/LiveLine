@@ -67,13 +67,23 @@ export async function createPost(req: AuthRequest, res: Response) {
   const file = req.file;
   if (!file) return res.status(400).json({ error: 'No media file provided', data: null });
 
-  const { caption, visibility = 'friends', music_id } = req.body as {
+  const { caption, visibility = 'friends', music_id, client_media_width, client_media_height } = req.body as {
     caption?: string;
     visibility?: string;
     music_id?: string;
+    client_media_width?: string | number;
+    client_media_height?: string | number;
   };
 
   const mediaType = file.mimetype.startsWith('video/') ? 'video' : 'image';
+
+  const positiveMediaDim = (v: unknown): number | null => {
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const clientMediaW = mediaType === 'video' ? positiveMediaDim(client_media_width) : null;
+  const clientMediaH = mediaType === 'video' ? positiveMediaDim(client_media_height) : null;
 
   let processed: Awaited<ReturnType<typeof mediaService.processAndUpload>>;
   try {
@@ -83,7 +93,16 @@ export async function createPost(req: AuthRequest, res: Response) {
     return res.status(500).json({ error: msg, data: null });
   }
 
-  const { mediaUrl, thumbnailUrl, durationSec, mediaWidth, mediaHeight } = processed;
+  let { mediaUrl, thumbnailUrl, durationSec, mediaWidth, mediaHeight } = processed;
+  // Prefer dimensions extracted from the actual uploaded video file.
+  // Only fall back to client-provided dimensions when extraction failed.
+  if (mediaType === 'video') {
+    const backendValid = mediaWidth != null && mediaHeight != null;
+    if (!backendValid && clientMediaW != null && clientMediaH != null) {
+      mediaWidth = clientMediaW;
+      mediaHeight = clientMediaH;
+    }
+  }
 
   const rowBase = {
     user_id: req.userId,

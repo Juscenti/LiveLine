@@ -1,16 +1,31 @@
+// ============================================================
+// app/profile/edit.tsx
+// ============================================================
 import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Alert,
-  ActivityIndicator, Image,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
+  Image,
+  Pressable,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { usersApi } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
 
 export default function EditProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, refreshUser } = useAuthStore();
 
   const [displayName, setDisplayName] = useState('');
@@ -65,8 +80,6 @@ export default function EditProfileScreen() {
     if (!user) return;
     setLoading(true);
     try {
-      // Backend zod schema treats fields as `optional` (undefined), not `null`.
-      // Sending `null` causes HTTP 400 validation errors.
       const payload: { display_name?: string; bio?: string; username?: string } = {};
       const dn = displayName.trim();
       const un = username.trim();
@@ -123,7 +136,7 @@ export default function EditProfileScreen() {
       }
 
       await refreshUser();
-      router.replace(`/profile/${user.id}`);
+      router.back();
     } catch (e: any) {
       Alert.alert('Save failed', e?.message ?? 'Unknown error');
     } finally {
@@ -133,200 +146,268 @@ export default function EditProfileScreen() {
 
   if (!user) return null;
 
+  const topPad = insets.top + SPACING.sm;
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Banner header */}
-      <View style={styles.bannerContainer}>
-        {bannerPreviewUri ? (
-          <Image source={{ uri: bannerPreviewUri }} style={styles.banner} />
-        ) : (
-          <View style={[styles.banner, { backgroundColor: COLORS.bgElevated }]} />
-        )}
-
-        <View style={styles.topFade} />
-
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Text style={styles.backText}>‹ Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>Edit profile</Text>
-          <View style={{ width: 48 }} />
-        </View>
+    <View style={styles.screen}>
+      {/* Nav — not painted on the banner */}
+      <View style={[styles.nav, { paddingTop: topPad, paddingBottom: SPACING.md }]}>
+        <Pressable
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.navBtn, pressed && { opacity: 0.65 }]}
+          hitSlop={12}
+        >
+          <Ionicons name="chevron-back" size={26} color={COLORS.textPrimary} />
+        </Pressable>
+        <Text style={styles.navTitle}>Edit profile</Text>
+        <View style={styles.navSpacer} />
       </View>
 
-      {/* Avatar + quick action */}
-      <View style={styles.avatarRow}>
-        <View style={styles.avatarOuter}>
-          {avatarPreviewUri ? (
-            <Image source={{ uri: avatarPreviewUri }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarInitial}>{avatarInitial}</Text>
-            </View>
-          )}
-        </View>
-
-        <TouchableOpacity style={styles.changeBtn} onPress={pickAvatar}>
-          <Text style={styles.changeBtnText}>Change</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Banner change */}
-      <TouchableOpacity style={styles.bannerEditBtn} onPress={pickBanner}>
-        <Text style={styles.bannerEditBtnText}>Change banner</Text>
-      </TouchableOpacity>
-
-      {/* Form cards */}
-      <View style={styles.card}>
-        <Text style={styles.label}>Display name</Text>
-        <TextInput
-          style={styles.input}
-          value={displayName}
-          onChangeText={setDisplayName}
-          placeholder="Display name"
-          placeholderTextColor={COLORS.textTertiary}
-        />
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.label}>Username</Text>
-        <TextInput
-          style={styles.input}
-          value={username}
-          onChangeText={setUsername}
-          placeholder="username"
-          placeholderTextColor={COLORS.textTertiary}
-          autoCapitalize="none"
-        />
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.label}>Bio</Text>
-        <TextInput
-          style={[styles.input, styles.bioInput]}
-          value={bio}
-          onChangeText={setBio}
-          placeholder="Tell people what you're listening to..."
-          placeholderTextColor={COLORS.textTertiary}
-          multiline
-          maxLength={300}
-        />
-      </View>
-
-      <View style={styles.bottomPad} />
-
-      <TouchableOpacity
-        style={[styles.saveBtn, loading && styles.saveBtnDisabled]}
-        onPress={save}
-        disabled={loading}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + SPACING.xl }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        {loading ? (
-          <ActivityIndicator color={COLORS.textInverse} />
-        ) : (
-          <Text style={styles.saveBtnText}>Save</Text>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
+        <View style={styles.bannerWrap}>
+          {bannerPreviewUri ? (
+            <Image source={{ uri: bannerPreviewUri }} style={styles.banner} />
+          ) : (
+            <View style={[styles.banner, styles.bannerEmpty]} />
+          )}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.5)']}
+            style={styles.bannerOverlay}
+          />
+          <Pressable
+            style={({ pressed }) => [styles.bannerChip, pressed && { opacity: 0.85 }]}
+            onPress={pickBanner}
+          >
+            <Ionicons name="image-outline" size={18} color={COLORS.textPrimary} />
+            <Text style={styles.bannerChipText}>Change banner</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.avatarBlock}>
+          <View style={styles.avatarRing}>
+            {avatarPreviewUri ? (
+              <Image source={{ uri: avatarPreviewUri }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <Text style={styles.avatarInitial}>{avatarInitial}</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.avatarMeta}>
+            <Text style={styles.avatarLabel}>Profile photo</Text>
+            <Pressable
+              style={({ pressed }) => [styles.outlineBtn, pressed && { opacity: 0.75 }]}
+              onPress={pickAvatar}
+            >
+              <Ionicons name="camera-outline" size={18} color={COLORS.accent} />
+              <Text style={styles.outlineBtnText}>Update photo</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.form}>
+          <View style={styles.card}>
+            <Text style={styles.label}>Display name</Text>
+            <TextInput
+              style={styles.input}
+              value={displayName}
+              onChangeText={setDisplayName}
+              placeholder="Display name"
+              placeholderTextColor={COLORS.textTertiary}
+            />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.label}>Username</Text>
+            <TextInput
+              style={styles.input}
+              value={username}
+              onChangeText={setUsername}
+              placeholder="username"
+              placeholderTextColor={COLORS.textTertiary}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.label}>Bio</Text>
+            <TextInput
+              style={[styles.input, styles.bioInput]}
+              value={bio}
+              onChangeText={setBio}
+              placeholder="About you…"
+              placeholderTextColor={COLORS.textTertiary}
+              multiline
+              maxLength={300}
+            />
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.saveBtn, loading && styles.saveBtnDisabled]}
+          onPress={save}
+          disabled={loading}
+          activeOpacity={0.9}
+        >
+          {loading ? (
+            <ActivityIndicator color={COLORS.textInverse} />
+          ) : (
+            <Text style={styles.saveBtnText}>Save changes</Text>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg },
-  content: { padding: SPACING.base },
-
-  bannerContainer: { height: 140, position: 'relative' },
-  banner: { width: '100%', height: '100%' },
-  topFade: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-
-  header: {
-    position: 'absolute',
-    left: SPACING.base,
-    right: SPACING.base,
-    top: 56,
+  screen: { flex: 1, backgroundColor: COLORS.bg },
+  nav: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: SPACING.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
   },
-
-  backText: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm },
-  title: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.lg },
-
-  avatarRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  navBtn: {
+    width: 44,
+    height: 44,
     alignItems: 'center',
-    marginTop: -36,
+    justifyContent: 'center',
+  },
+  navTitle: {
+    flex: 1,
+    textAlign: 'center',
+    color: COLORS.textPrimary,
+    fontWeight: FONTS.weights.bold,
+    fontSize: FONTS.sizes.md,
+  },
+  navSpacer: { width: 44 },
+  scroll: { flex: 1 },
+  content: {
     paddingHorizontal: SPACING.base,
+    paddingTop: SPACING.md,
   },
-  avatarOuter: {
+  bannerWrap: {
+    height: 148,
+    borderRadius: RADIUS.lg,
+    overflow: 'hidden',
+    backgroundColor: COLORS.bgElevated,
+    position: 'relative',
+  },
+  banner: { width: '100%', height: '100%' },
+  bannerEmpty: { backgroundColor: COLORS.bgElevated },
+  bannerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bannerChip: {
+    position: 'absolute',
+    bottom: SPACING.md,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.full,
+    backgroundColor: 'rgba(20,20,20,0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  bannerChipText: {
+    color: COLORS.textPrimary,
+    fontWeight: FONTS.weights.semibold,
+    fontSize: FONTS.sizes.sm,
+  },
+  avatarBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: -40,
+    gap: SPACING.md,
+    marginBottom: SPACING.lg,
+  },
+  avatarRing: {
     borderWidth: 3,
     borderColor: COLORS.bg,
     borderRadius: 999,
   },
-  avatar: { width: 84, height: 84, borderRadius: 42 },
-  avatarPlaceholder: { backgroundColor: COLORS.bgElevated, justifyContent: 'center', alignItems: 'center' },
-  avatarInitial: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.xl },
-
-  changeBtn: {
+  avatar: { width: 88, height: 88, borderRadius: 44 },
+  avatarPlaceholder: {
     backgroundColor: COLORS.bgElevated,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-  },
-  changeBtnText: { color: COLORS.textPrimary, fontWeight: FONTS.weights.medium },
-
-  bannerEditBtn: {
-    marginTop: SPACING.sm,
-    marginHorizontal: SPACING.base,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.bgElevated,
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  bannerEditBtnText: { color: COLORS.textSecondary, fontWeight: FONTS.weights.semibold },
-
+  avatarInitial: {
+    color: COLORS.textPrimary,
+    fontWeight: FONTS.weights.bold,
+    fontSize: FONTS.sizes.xl,
+  },
+  avatarMeta: { flex: 1, gap: SPACING.sm, justifyContent: 'center' },
+  avatarLabel: {
+    color: COLORS.textSecondary,
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.medium,
+  },
+  outlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 10,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.accent,
+    backgroundColor: 'rgba(0,255,148,0.08)',
+  },
+  outlineBtnText: {
+    color: COLORS.accent,
+    fontWeight: FONTS.weights.semibold,
+    fontSize: FONTS.sizes.sm,
+  },
+  form: { gap: SPACING.md },
   card: {
-    marginTop: SPACING.md,
     backgroundColor: COLORS.bgCard,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: RADIUS.md,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: RADIUS.lg,
     padding: SPACING.md,
   },
-
-  label: { color: COLORS.textSecondary, fontWeight: FONTS.weights.semibold, marginBottom: SPACING.xs },
+  label: {
+    color: COLORS.textSecondary,
+    fontWeight: FONTS.weights.semibold,
+    fontSize: FONTS.sizes.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: SPACING.sm,
+  },
   input: {
     backgroundColor: COLORS.bgElevated,
     borderColor: COLORS.borderSubtle,
     borderWidth: 1,
     borderRadius: RADIUS.md,
-    padding: SPACING.base,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
     color: COLORS.textPrimary,
+    fontSize: FONTS.sizes.base,
   },
-  bioInput: { minHeight: 90, textAlignVertical: 'top' },
-  bottomPad: { height: 18 },
-
+  bioInput: { minHeight: 96, textAlignVertical: 'top' },
   saveBtn: {
+    marginTop: SPACING.xl,
     backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
+    borderRadius: RADIUS.lg,
+    paddingVertical: SPACING.md,
     alignItems: 'center',
-    marginTop: SPACING.lg,
-    marginHorizontal: SPACING.base,
-    marginBottom: SPACING.xl,
   },
   saveBtnDisabled: { opacity: 0.55 },
-  saveBtnText: { color: COLORS.textInverse, fontWeight: FONTS.weights.bold },
+  saveBtnText: {
+    color: COLORS.textInverse,
+    fontWeight: FONTS.weights.bold,
+    fontSize: FONTS.sizes.base,
+  },
 });
-

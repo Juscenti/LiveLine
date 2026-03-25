@@ -11,6 +11,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { useEventListener } from 'expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { postsApi } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -28,9 +29,17 @@ import type { FeedPost } from '@/types';
 
 dayjs.extend(relativeTime);
 
-function PostDetailVideo({ uri }: { uri: string }) {
+function PostDetailVideo({ uri, onAspect }: { uri: string; onAspect: (ar: number) => void }) {
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
+  });
+  // Mirror imageNaturalAspect logic: measure real dimensions from the video track metadata
+  // as soon as the player loads it (equivalent of expo-image onLoad for images).
+  useEventListener(player, 'videoTrackChange', ({ videoTrack }) => {
+    const size = videoTrack?.size;
+    if (size && size.width > 0 && size.height > 0) {
+      onAspect(size.width / size.height);
+    }
   });
   return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="cover" nativeControls />;
 }
@@ -49,6 +58,8 @@ export default function PostDetailScreen() {
   const [deleting, setDeleting] = useState(false);
   /** Pixel aspect from loaded bitmap (fixes square thumbs vs wide originals, bad DB dims) */
   const [imageNaturalAspect, setImageNaturalAspect] = useState<number | null>(null);
+  /** Aspect ratio measured from video track metadata — mirrors imageNaturalAspect for videos */
+  const [videoNaturalAspect, setVideoNaturalAspect] = useState<number | null>(null);
 
   const detailImageUri = useMemo(() => {
     if (!post || post.media_type !== 'image') return '';
@@ -57,6 +68,7 @@ export default function PostDetailScreen() {
 
   useEffect(() => {
     setImageNaturalAspect(null);
+    setVideoNaturalAspect(null);
   }, [post?.id, detailImageUri]);
 
   useEffect(() => {
@@ -153,7 +165,17 @@ export default function PostDetailScreen() {
     ]);
   };
 
-  const mediaAspect = imageNaturalAspect ?? getPostMediaAspectRatio(post);
+  // Videos — prefer DB dimensions first (backend extracts rotation-correct dims).
+  // Images: unchanged — measured from decoded pixels or DB dimensions.
+  const mediaAspect = post.media_type === 'video'
+    ? (() => {
+        const w = Number(post.media_width);
+        const h = Number(post.media_height);
+        if (w > 0 && h > 0) return normalizeAspectFromPixels(w, h);
+        if (videoNaturalAspect != null) return videoNaturalAspect;
+        return 9 / 16;
+      })()
+    : (imageNaturalAspect ?? getPostMediaAspectRatio(post));
 
   return (
     <KeyboardAvoidingView
@@ -228,7 +250,10 @@ export default function PostDetailScreen() {
             )
           ) : (
             post.media_url ? (
-              <PostDetailVideo uri={post.media_url} />
+              <PostDetailVideo
+                uri={post.media_url}
+                onAspect={(ar) => setVideoNaturalAspect((prev) => prev ?? ar)}
+              />
             ) : (
               <View style={styles.mediaPlaceholder}>
                 <Text style={styles.mediaPlaceholderText}>▶</Text>

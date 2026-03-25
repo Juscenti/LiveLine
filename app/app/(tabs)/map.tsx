@@ -5,19 +5,22 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, Platform, Pressable, AppState } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useMapStore } from '@/stores/mapStore';
-import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
+import { COLORS, SPACING, FONTS, RADIUS, TAB_BAR } from '@/constants';
 import FriendMapMarker from '@/components/map/FriendMapMarker';
 import FriendMapSheet from '@/components/map/FriendMapSheet';
 import type { MapFriend } from '@/types';
 
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
+  const insets = useSafeAreaInsets();
   const {
     myLocation, nearbyFriends, selectedFriendId,
     startTracking, stopTracking,
     selectFriend, locationPermission,
-    refreshNearby, isRefreshing, lastNearbyUpdatedAt,
+    refreshNearby,
   } = useMapStore();
   const hasCenteredInitiallyRef = useRef(false);
   useEffect(() => {
@@ -112,7 +115,7 @@ export default function MapScreen() {
             <Marker
               key={friend.user_id}
               coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
-              anchor={{ x: 0.5, y: 1 }}
+              anchor={{ x: 0.5, y: 0.5 }}
               tracksViewChanges={false}
               zIndex={friend.user_id === selectedFriendId ? 1000 : 1}
               onPress={() => {
@@ -140,28 +143,36 @@ export default function MapScreen() {
         />
       )}
 
-      {/* Floating top controls */}
-      <View style={styles.topControls}>
-        <View style={styles.infoCard}>
-          <Text style={styles.title}>Live Map</Text>
-          <Text style={styles.count}>{nearbyFriends.length} nearby</Text>
-          <Text style={styles.updatedAt}>
-            {isRefreshing
-              ? 'Syncing...'
-              : lastNearbyUpdatedAt
-                ? 'Updated just now'
-                : 'Waiting for nearby updates'}
-          </Text>
-        </View>
-
+      {/* Top-right map controls (icons only; nearby list updates quietly in the store). */}
+      <View style={[styles.topControls, { top: insets.top + 12 }]}>
         <View style={styles.actionStack}>
-          <TouchableOpacity style={styles.centerBtn} onPress={centerOnMe} activeOpacity={0.9}>
-            <Text style={styles.centerBtnText}>Center</Text>
+          <TouchableOpacity
+            style={styles.centerBtn}
+            onPress={centerOnMe}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel="Center map on my location"
+          >
+            <Ionicons name="locate" size={22} color={COLORS.textInverse} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.refreshBtn} onPress={refreshNearby} activeOpacity={0.9}>
-            <Text style={styles.refreshBtnText}>Refresh</Text>
+          <TouchableOpacity
+            style={styles.refreshBtn}
+            onPress={() => void refreshNearby({ force: true })}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel="Refresh nearby friends"
+          >
+            <Ionicons name="refresh" size={22} color={COLORS.textPrimary} />
           </TouchableOpacity>
         </View>
+      </View>
+
+      {/* Below floating tab bar — does not change tab bar position */}
+      <View
+        style={[styles.nearbyFooter, { height: TAB_BAR.bottomGap + insets.bottom }]}
+        pointerEvents="none"
+      >
+        <Text style={styles.nearbyCount}>{nearbyFriends.length} nearby</Text>
       </View>
 
       {/* Permission prompt */}
@@ -192,38 +203,22 @@ const styles = StyleSheet.create({
   },
   topControls: {
     position: 'absolute',
-    top: 56,
     left: SPACING.base,
     right: SPACING.base,
     zIndex: 20,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: SPACING.sm,
-  },
-  infoCard: {
-    flex: 1,
-    backgroundColor: 'rgba(18,18,18,0.86)',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
-    borderRadius: RADIUS.xl,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    elevation: 10,
+    justifyContent: 'flex-end',
   },
   actionStack: {
-    width: 108,
+    width: 48,
     gap: SPACING.sm,
   },
   centerBtn: {
     backgroundColor: COLORS.accent,
     borderRadius: 16,
-    minHeight: 44,
-    flexDirection: 'row',
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: COLORS.accent,
@@ -235,17 +230,23 @@ const styles = StyleSheet.create({
   refreshBtn: {
     backgroundColor: 'rgba(20,20,20,0.88)',
     borderRadius: 16,
-    minHeight: 44,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
-  title: { fontSize: FONTS.sizes.md, fontWeight: FONTS.weights.bold, color: COLORS.textPrimary },
-  count: { fontSize: FONTS.sizes.sm, color: COLORS.accent },
-  updatedAt: { marginTop: 2, fontSize: FONTS.sizes.xs, color: COLORS.textSecondary },
-  centerBtnText: { color: COLORS.textInverse, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.sm },
-  refreshBtnText: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.sm },
+  nearbyFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 12,
+  },
+  nearbyCount: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semibold, color: COLORS.accent },
   selfMarker: {
     width: 24, height: 24, borderRadius: 12,
     backgroundColor: COLORS.accent + '30',

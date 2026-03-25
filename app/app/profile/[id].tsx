@@ -2,13 +2,23 @@
 // app/profile/[id].tsx — Public user profile
 // ============================================================
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, ActivityIndicator, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Image,
+  ActivityIndicator,
+  Alert,
+  useWindowDimensions,
+  Dimensions,
+} from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usersApi, postsApi, friendsApi } from '@/services/api';
 import { getOrCreateDirectConversation } from '@/services/conversations';
 import { useAuthStore } from '@/stores/authStore';
-import { COLORS, SPACING, FONTS } from '@/constants';
+import { COLORS, SPACING, FONTS, FEED } from '@/constants';
 import PostThumb from '@/components/feed/PostThumb';
 import { AppHeader, PillButton, UserAvatar, UserNameBlock } from '@/components/shared';
 import { formatApiError } from '@/utils/apiErrors';
@@ -26,6 +36,7 @@ export default function PublicProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user: me } = useAuthStore();
   const insets = useSafeAreaInsets();
+  const { width: winW } = useWindowDimensions();
   const [profile, setProfile] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -141,6 +152,15 @@ export default function PublicProfileScreen() {
 
   if (!profile) return null;
 
+  const profileCols = 3;
+  const profileGutter = 6;
+  const profilePadH = SPACING.base * 2;
+  const profileLayoutW = winW > 0 ? winW : Dimensions.get('window').width;
+  const profileThumbW = Math.max(
+    1,
+    (profileLayoutW - profilePadH - profileGutter * (profileCols - 1)) / profileCols,
+  );
+
   const renderFriendActions = () => {
     if (isMe) return null;
 
@@ -208,12 +228,13 @@ export default function PublicProfileScreen() {
           {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
         </View>
 
-        <View style={styles.grid}>
+        <View style={[styles.grid, { gap: profileGutter }]}>
           {posts.map((post) => (
             <PostThumb
               key={post.id}
               post={post}
-              size={120}
+              size={profileThumbW}
+              aspectRatio={FEED.fallbackAspect}
               onPress={() => router.push(`/post/${post.id}`)}
             />
           ))}
@@ -250,9 +271,9 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: SPACING.xs,
-    padding: SPACING.base,
+    paddingHorizontal: SPACING.base,
     paddingTop: SPACING.md,
+    paddingBottom: SPACING.base,
   },
   noPosts: { color: COLORS.textTertiary, fontSize: FONTS.sizes.sm, padding: SPACING.md },
 });

@@ -17,6 +17,8 @@ export type FriendsInboxFetchOpts = {
    * Default: true only if there was no data yet (first paint).
    */
   withSpinner?: boolean;
+  /** When true, errors are ignored (no alert) — e.g. profile tab background refresh. */
+  silent?: boolean;
 };
 
 export type FriendsInboxState = {
@@ -64,7 +66,9 @@ export const useFriendsInboxStore = create<FriendsInboxState>((set, get) => ({
           outgoing: outgoingRes.data.data ?? outgoingRes.data ?? [],
         });
       } catch (e: unknown) {
-        Alert.alert('Failed to load', formatApiError(e));
+        if (!opts?.silent) {
+          Alert.alert('Failed to load', formatApiError(e));
+        }
       } finally {
         set({ loading: false });
         fetchInFlight = null;

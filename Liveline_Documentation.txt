@@ -271,7 +271,75 @@ Phase 4:
 - Optimization
 
 
-11. FUTURE SCALING
+11. IMPLEMENTATION STATUS (CLIENT + API — REPO AS OF LAST UPDATE)
+
+Legend:
+- [x]  Implemented and in active use in the app and/or backend
+- [~]  Partially implemented, placeholder behavior, or differs from the spec text below
+- [ ]  Not implemented / documented as future-only
+
+This section is the working checklist for walking the rest of the document “bit by bit.” Earlier sections (1–10) remain the canonical spec narrative.
+
+2. CORE FEATURES (STATUS)
+
+2.1 Moment Feed
+- [x]  Pinterest-style grid layout (FlashList masonry), variable tile height from media aspect
+- [x]  Short video/image posts and camera capture flow
+- [~]  Auto-play previews in the grid: video tiles use thumbnail + play badge; not full inline autoplay in the masonry list
+- [x]  Timestamp-based relevance (e.g. relative “time ago”)
+- [~]  Optional expiration / 24-hour lifecycle: fields exist; confirm enforcement and UX consistency across surfaces
+
+2.2 Live Map
+- [x]  Friend locations (when enabled), polling + location watch, nearby friends API
+- [x]  Markers with activity/music affordances; tap opens sheet (mini-profile style)
+- [x]  UI: icon controls (center / refresh), quiet background refresh, “n nearby” label, circular avatar markers (not pin shape)
+- [~]  Doc “Mapbox” vs app: mobile client uses react-native-maps (Google maps on Android, Apple MapKit on iOS), not Mapbox tiles — update §3.4 wording when revising the spec
+
+2.3 Music Integration
+- [~]  Multiple platforms (Spotify, Apple Music, SoundCloud): connect flows and normalized track shape in app/API; depth varies by platform
+- [~]  Display now playing / attach to posts / top tracks: present in places; “sync playback” remains advanced / not primary scope
+
+2.4 Profile System
+- [x]  Profile picture, banner, username, display name, bio; edit profile screen; public profile by id
+- [x]  Posts grid on profile (e.g. 3 columns, portrait tile aspect aligned with feed utilities)
+- [x]  Stat strip: post count, friends count (inbox), likes (sum from loaded posts’ like_counts)
+- [~]  Interests (tag-based) and music identity / top tracks: routes and APIs exist; richness of presentation can be expanded
+
+2.5 Friends System
+- [x]  Add/remove/search; friends tab + inbox store; profile links to friends
+
+2.6 Media Upload System
+- [x]  Capture from camera; gallery picks (e.g. profile); backend upload and validation paths
+
+3. TECH STACK (STATUS)
+
+3.1–3.3 Frontend / Backend / Supabase
+- [x]  React Native (Expo) client; Node.js + Express API; Supabase (Postgres, auth, storage) as documented
+
+3.4 External Services
+- [~]  Maps: spec lists Mapbox; implementation is react-native-maps + native providers (see 2.2 note)
+- [~]  Push: in-app notification list + API + local cache; FCM / full push scaling per doc remains [ ]
+- [x]  Music platform APIs (where connected) per integration work
+- [~]  FFmpeg / media pipeline: as implemented in backend services (validate on deep pass)
+
+4–4.8, 6–7, 9. DATABASE, MEDIA PROCESSING, API, PERFORMANCE
+- [ ]  Not re-ticked line-by-line here — treat schema and architecture sections as spec truth; verify row-by-row in a later pass
+
+5. REAL-TIME SYSTEM
+- [~]  Supabase Realtime in doc vs app: much of the product uses REST + polling (feed, map nearby, notification fetch); confirm channels vs poll before marking full realtime [x]
+
+8. SECURITY SYSTEM
+- [x]  JWT / Supabase session usage and protected API routes
+- [~]  Rate limiting and hardening: audit backend before marking [x]
+
+10. DEVELOPMENT ROADMAP (MVP) — HIGH-LEVEL DONE
+- [x]  Phase 1: Authentication, profile, basic posting
+- [x]  Phase 2: Feed, friends
+- [~]  Phase 3: Map + music — present; polish and provider wording (maps) ongoing
+- [~]  Phase 4: Notifications (in-app + cache) + optimization — partial; push at scale and perf passes ongoing
+
+
+12. FUTURE SCALING
 - Introduce Redis for real-time optimization
 - Add advanced presence tracking
 - Expand music integrations

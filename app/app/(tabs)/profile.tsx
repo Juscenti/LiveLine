@@ -1,22 +1,24 @@
 // ============================================================
 // app/(tabs)/profile.tsx — Own profile (redesigned)
 // ============================================================
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  Image, Dimensions, ActivityIndicator, Animated, Pressable,
+  View, Text, ScrollView, StyleSheet,
+  Image, ActivityIndicator, Animated, Pressable, useWindowDimensions, Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthStore } from '@/stores/authStore';
 import { useMusicStore } from '@/stores/musicStore';
+import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 import { postsApi } from '@/services/api';
-import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
+import { COLORS, SPACING, FONTS, RADIUS, TAB_BAR, FEED } from '@/constants';
 import MusicBadge from '@/components/music/MusicBadge';
 import PostThumb from '@/components/feed/PostThumb';
 import type { Post } from '@/types';
-
-const { width } = Dimensions.get('window');
-const THUMB = (width - SPACING.base * 2 - 2) / 3; // 3-col grid, 1px gaps
 
 // ── Stat pill ────────────────────────────────────────────────
 function StatPill({ value, label }: { value: number | string; label: string }) {
@@ -50,10 +52,14 @@ function ProfileHeader({
   user,
   posts,
   nowPlaying,
+  friendsCount,
+  totalLikes,
 }: {
   user: any;
   posts: Post[];
   nowPlaying: any;
+  friendsCount: number;
+  totalLikes: number;
 }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(18)).current;
@@ -67,18 +73,21 @@ function ProfileHeader({
 
   return (
     <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-      {/* Banner */}
+      {/* Banner — rounded bottom + gradient into page background */}
       <View style={headerStyles.bannerContainer}>
         {user.banner_url ? (
           <Image source={{ uri: user.banner_url }} style={headerStyles.banner} resizeMode="cover" />
         ) : (
           <View style={headerStyles.bannerPlaceholder} />
         )}
-        {/* subtle bottom fade so avatar floats cleanly */}
-        <View style={headerStyles.bannerFade} />
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.35)', COLORS.bg]}
+          locations={[0.35, 0.78, 1]}
+          style={headerStyles.bannerGradient}
+        />
       </View>
 
-      {/* Avatar row */}
+      {/* Avatar overlaps banner; actions sit below name for cleaner vertical rhythm */}
       <View style={headerStyles.avatarRow}>
         <View style={headerStyles.avatarRing}>
           {user.profile_picture_url ? (
@@ -91,25 +100,8 @@ function ProfileHeader({
             </View>
           )}
         </View>
-
-        {/* Action buttons */}
-        <View style={headerStyles.actions}>
-          <Pressable
-            style={({ pressed }) => [headerStyles.editBtn, pressed && { opacity: 0.7 }]}
-            onPress={() => router.push('/profile/edit')}
-          >
-            <Text style={headerStyles.editBtnText}>Edit profile</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [headerStyles.iconBtn, pressed && { opacity: 0.7 }]}
-            onPress={() => router.push('/settings')}
-          >
-            <Text style={headerStyles.iconBtnText}>⚙️</Text>
-          </Pressable>
-        </View>
       </View>
 
-      {/* Identity */}
       <View style={headerStyles.identity}>
         <Text style={headerStyles.displayName} numberOfLines={1}>
           {user.display_name ?? user.username}
@@ -118,15 +110,39 @@ function ProfileHeader({
         {user.bio ? (
           <Text style={headerStyles.bio}>{user.bio}</Text>
         ) : null}
+
+        <View style={headerStyles.actions}>
+          <Pressable
+            style={({ pressed }) => [headerStyles.editBtn, pressed && { opacity: 0.75 }]}
+            onPress={() => router.push('/profile/edit')}
+          >
+            <Text style={headerStyles.editBtnText}>Edit profile</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [headerStyles.iconBtn, pressed && { opacity: 0.75 }]}
+            onPress={() => router.push('/settings')}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+          >
+            <Ionicons name="settings-outline" size={20} color={COLORS.textPrimary} />
+          </Pressable>
+        </View>
       </View>
 
-      {/* Stats bar */}
+      {/* Stats bar — posts count; friends from inbox; likes sum of loaded posts’ like_count */}
       <View style={headerStyles.statsBar}>
         <StatPill value={posts.length} label="Posts" />
         <View style={headerStyles.statDivider} />
-        <StatPill value={user.friends_count ?? '—'} label="Friends" />
+        <Pressable
+          style={({ pressed }) => [headerStyles.statPressable, pressed && { opacity: 0.75 }]}
+          onPress={() => router.push('/(tabs)/friends')}
+          accessibilityRole="button"
+          accessibilityLabel="Open friends"
+        >
+          <StatPill value={friendsCount} label="Friends" />
+        </Pressable>
         <View style={headerStyles.statDivider} />
-        <StatPill value={user.likes_count ?? '—'} label="Likes" />
+        <StatPill value={totalLikes} label="Likes" />
       </View>
 
       {/* Now playing */}
@@ -140,23 +156,29 @@ function ProfileHeader({
 }
 
 const headerStyles = StyleSheet.create({
-  bannerContainer: { height: 160, position: 'relative' },
+  bannerContainer: {
+    height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderBottomLeftRadius: RADIUS.lg,
+    borderBottomRightRadius: RADIUS.lg,
+    marginHorizontal: SPACING.xs,
+  },
   banner: { width: '100%', height: '100%' },
   bannerPlaceholder: {
     width: '100%', height: '100%',
     backgroundColor: COLORS.bgElevated,
   },
-  bannerFade: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, height: 48,
-    // simulated gradient via layered transparency
-    backgroundColor: 'rgba(0,0,0,0.18)',
+  bannerGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 100,
   },
   avatarRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
     paddingHorizontal: SPACING.base,
-    marginTop: -44,
+    marginTop: -42,
     zIndex: 10,
   },
   avatarRing: {
@@ -179,14 +201,20 @@ const headerStyles = StyleSheet.create({
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
   },
-  actions: { flexDirection: 'row', gap: SPACING.sm, paddingBottom: 6 },
+  actions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+    alignItems: 'center',
+  },
   editBtn: {
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 7,
-    backgroundColor: COLORS.bg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 9,
+    backgroundColor: COLORS.bgElevated,
   },
   editBtnText: {
     color: COLORS.textPrimary,
@@ -194,18 +222,20 @@ const headerStyles = StyleSheet.create({
     fontWeight: FONTS.weights.medium,
   },
   iconBtn: {
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    backgroundColor: COLORS.bg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: RADIUS.full,
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.bgElevated,
   },
-  iconBtnText: { fontSize: FONTS.sizes.base },
+  statPressable: { flex: 1 },
   identity: {
     paddingHorizontal: SPACING.base,
-    paddingTop: SPACING.md,
-    gap: 3,
+    paddingTop: SPACING.sm,
+    gap: 4,
   },
   displayName: {
     fontSize: FONTS.sizes.xl,
@@ -225,11 +255,11 @@ const headerStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: SPACING.base,
-    marginTop: SPACING.lg,
-    paddingVertical: SPACING.md,
+    marginTop: SPACING.xl,
+    paddingVertical: SPACING.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: COLORS.border,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   statDivider: {
     width: StyleSheet.hairlineWidth,
@@ -248,23 +278,23 @@ function QuickActions() {
     <View style={qaStyles.row}>
       <Pressable
         style={({ pressed }) => [qaStyles.tile, pressed && qaStyles.tilePressed]}
-        onPress={() => router.push('/friends')}
+        onPress={() => router.push('/(tabs)/friends')}
       >
-        <Text style={qaStyles.tileIcon}>👥</Text>
+        <Ionicons name="people" size={22} color="#6BA3FF" />
         <Text style={qaStyles.tileLabel}>Friends</Text>
       </Pressable>
       <Pressable
         style={({ pressed }) => [qaStyles.tile, pressed && qaStyles.tilePressed]}
         onPress={() => router.push('/music/connect')}
       >
-        <Text style={qaStyles.tileIcon}>🎵</Text>
+        <Ionicons name="musical-notes" size={22} color={COLORS.textSecondary} />
         <Text style={qaStyles.tileLabel}>Music</Text>
       </Pressable>
       <Pressable
         style={({ pressed }) => [qaStyles.tile, pressed && qaStyles.tilePressed]}
         onPress={() => router.push('/interests')}
       >
-        <Text style={qaStyles.tileIcon}>✨</Text>
+        <Ionicons name="sparkles" size={22} color={COLORS.warning} />
         <Text style={qaStyles.tileLabel}>Interests</Text>
       </Pressable>
     </View>
@@ -285,11 +315,10 @@ const qaStyles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: COLORS.border,
     borderRadius: RADIUS.md,
-    gap: 4,
+    gap: SPACING.sm,
     backgroundColor: COLORS.bgElevated,
   },
   tilePressed: { opacity: 0.6 },
-  tileIcon: { fontSize: 20 },
   tileLabel: {
     fontSize: 11,
     color: COLORS.textSecondary,
@@ -301,7 +330,14 @@ const qaStyles = StyleSheet.create({
 
 // ── Post grid with section header ───────────────────────────
 function PostsGrid({ posts }: { posts: Post[] }) {
+  const { width: winW } = useWindowDimensions();
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  const cols = 3;
+  const gutter = 6;
+  const padH = SPACING.base * 2;
+  const layoutW = winW > 0 ? winW : Dimensions.get('window').width;
+  const thumbW = Math.max(1, (layoutW - padH - gutter * (cols - 1)) / cols);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -326,15 +362,15 @@ function PostsGrid({ posts }: { posts: Post[] }) {
           <Text style={gridStyles.emptySubtext}>Share your first moment</Text>
         </View>
       ) : (
-        <View style={gridStyles.grid}>
+        <View style={[gridStyles.grid, { gap: gutter }]}>
           {posts.map((post) => (
-            <Pressable
+            <PostThumb
               key={post.id}
-              style={({ pressed }) => [gridStyles.thumb, pressed && { opacity: 0.82 }]}
+              post={post}
+              size={thumbW}
+              aspectRatio={FEED.fallbackAspect}
               onPress={() => router.push(`/post/${post.id}`)}
-            >
-              <PostThumb post={post} size={THUMB} onPress={() => router.push(`/post/${post.id}`)} />
-            </Pressable>
+            />
           ))}
         </View>
       )}
@@ -369,10 +405,8 @@ const gridStyles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 1.5,
     paddingHorizontal: SPACING.base,
   },
-  thumb: { borderRadius: 2, overflow: 'hidden' },
   empty: {
     alignItems: 'center',
     paddingVertical: SPACING.xl * 2,
@@ -393,9 +427,17 @@ const gridStyles = StyleSheet.create({
 
 // ── Root screen ──────────────────────────────────────────────
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
+  const refreshUser = useAuthStore((s) => s.refreshUser);
+  const friendsCount = useFriendsInboxStore((s) => s.friends.length);
   const { nowPlaying } = useMusicStore();
   const [posts, setPosts] = useState<Post[]>([]);
+
+  const totalLikes = useMemo(
+    () => posts.reduce((sum, p) => sum + (typeof p.like_count === 'number' ? p.like_count : 0), 0),
+    [posts],
+  );
 
   useEffect(() => {
     if (!user?.id) return;
@@ -403,7 +445,16 @@ export default function ProfileScreen() {
       .getUserPosts(user.id)
       .then(({ data }) => setPosts(Array.isArray(data?.data) ? data.data : []))
       .catch(() => setPosts([]));
-  }, [user]);
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshUser();
+      void useFriendsInboxStore.getState().fetch({ withSpinner: false, silent: true });
+    }, [refreshUser]),
+  );
+
+  const bottomPad = TAB_BAR.height + TAB_BAR.bottomGap + insets.bottom + SPACING.lg;
 
   if (!user?.id) {
     return (
@@ -417,21 +468,26 @@ export default function ProfileScreen() {
   return (
     <ScrollView
       style={rootStyles.container}
-      contentContainerStyle={rootStyles.content}
+      contentContainerStyle={[rootStyles.content, { paddingBottom: bottomPad }]}
       showsVerticalScrollIndicator={false}
       overScrollMode="never"
     >
-      <ProfileHeader user={user} posts={posts} nowPlaying={nowPlaying} />
+      <ProfileHeader
+        user={user}
+        posts={posts}
+        nowPlaying={nowPlaying}
+        friendsCount={friendsCount}
+        totalLikes={totalLikes}
+      />
       <QuickActions />
       <PostsGrid posts={posts} />
-      <View style={rootStyles.footer} />
     </ScrollView>
   );
 }
 
 const rootStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
-  content: { paddingBottom: 0 },
+  content: { flexGrow: 1 },
   loading: {
     flex: 1,
     backgroundColor: COLORS.bg,
@@ -440,5 +496,4 @@ const rootStyles = StyleSheet.create({
     gap: SPACING.md,
   },
   loadingText: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm },
-  footer: { height: SPACING.xl },
 });

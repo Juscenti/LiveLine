@@ -2,7 +2,7 @@
 // components/map/FriendMapMarker.tsx
 // ============================================================
 import { View, Text, Image, StyleSheet } from 'react-native';
-import { COLORS, FONTS, RADIUS } from '@/constants';
+import { COLORS, FONTS } from '@/constants';
 import type { MapFriend } from '@/types';
 
 interface Props { friend: MapFriend; selected: boolean; }
@@ -10,7 +10,6 @@ interface Props { friend: MapFriend; selected: boolean; }
 export default function FriendMapMarker({ friend, selected }: Props) {
   return (
     <View style={[styles.wrapper, selected && styles.wrapperSelected]}>
-      {/* Avatar bubble */}
       <View style={[styles.bubble, selected && styles.bubbleSelected]}>
         {friend.profile_picture_url ? (
           <Image source={{ uri: friend.profile_picture_url }} style={styles.avatar} />
@@ -19,23 +18,14 @@ export default function FriendMapMarker({ friend, selected }: Props) {
             {(friend.display_name ?? friend.username)[0].toUpperCase()}
           </Text>
         )}
-        {/* Music dot */}
         {friend.music_song && <View style={styles.musicDot} />}
       </View>
-      {/* Pointer */}
-      <View style={[styles.pointer, selected && styles.pointerSelected]} />
-      {/* Username label when selected */}
-      {selected && (
-        <View style={styles.label}>
-          <Text style={styles.labelText}>{friend.display_name ?? friend.username}</Text>
-        </View>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: { alignItems: 'center' },
+  wrapper: { alignItems: 'center', justifyContent: 'center' },
   wrapperSelected: { transform: [{ scale: 1.1 }] },
   bubble: {
     width: 40, height: 40, borderRadius: 20,
@@ -53,18 +43,4 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.spotify,
     borderWidth: 1, borderColor: COLORS.bgCard,
   },
-  pointer: {
-    width: 0, height: 0,
-    borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 8,
-    borderLeftColor: 'transparent', borderRightColor: 'transparent',
-    borderTopColor: COLORS.border,
-    marginTop: -1,
-  },
-  pointerSelected: { borderTopColor: COLORS.accent },
-  label: {
-    marginTop: 4,
-    backgroundColor: COLORS.bgCard + 'E0',
-    borderRadius: RADIUS.sm, paddingHorizontal: 6, paddingVertical: 2,
-  },
-  labelText: { color: COLORS.textPrimary, fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.medium },
 });

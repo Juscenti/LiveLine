@@ -1,5 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegStatic from 'ffmpeg-static';
+import ffprobeStatic from 'ffprobe-static';
 import sharp from 'sharp';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import { supabaseAdmin } from '../config/supabase';
 
 type MediaType = 'image' | 'video';
@@ -18,15 +24,84 @@ export type ProcessedMedia = {
   mediaHeight: number | null;
 };
 
-/** Placeholder 9:16 frame for video until FFmpeg extracts real dimensions. */
-const VIDEO_PLACEHOLDER_W = 1080;
-const VIDEO_PLACEHOLDER_H = 1920;
+type VideoProbeResult = {
+  mediaWidth: number | null;
+  mediaHeight: number | null;
+  durationSec: number | null;
+};
+
+function parseRotationDegrees(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  // ffprobe might return 90, 270, -90, -270 or 0
+  return n;
+}
+
+async function probeVideo(buffer: Buffer, mimetype: string): Promise<VideoProbeResult> {
+  const tmpExt =
+    mimetype.includes('mp4') ? 'mp4' : mimetype.includes('quicktime') ? 'mov' : mimetype.includes('webm') ? 'webm' : 'mp4';
+
+  const tmpPath = path.join(os.tmpdir(), `liveline-${uuidv4()}.${tmpExt}`);
+  await fs.writeFile(tmpPath, buffer);
+
+  try {
+    // Ensure fluent-ffmpeg uses bundled binaries
+    ffmpeg.setFfmpegPath(ffmpegStatic as unknown as string);
+    ffmpeg.setFfprobePath(ffprobeStatic.path);
+
+    const metadata = await new Promise<any>((resolve, reject) => {
+      ffmpeg.ffprobe(tmpPath, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
+
+    const duration =
+      metadata?.format?.duration != null && Number.isFinite(Number(metadata.format.duration))
+        ? Number(metadata.format.duration)
+        : null;
+
+    const streams: any[] = Array.isArray(metadata?.streams) ? metadata.streams : [];
+    const videoStream =
+      streams.find((s) => s && s.codec_type === 'video') ?? streams[0] ?? null;
+
+    let width = videoStream?.width != null ? Number(videoStream.width) : null;
+    let height = videoStream?.height != null ? Number(videoStream.height) : null;
+
+    if (width != null && (!Number.isFinite(width) || width <= 0)) width = null;
+    if (height != null && (!Number.isFinite(height) || height <= 0)) height = null;
+
+    // Rotation is typically stored as tags.rotate, but we defensively probe a few locations.
+    const rotation =
+      parseRotationDegrees(videoStream?.tags?.rotate) ??
+      parseRotationDegrees(videoStream?.tags?.rotation) ??
+      parseRotationDegrees(videoStream?.rotation) ??
+      // Some ffprobe builds expose rotation inside Display Matrix side-data.
+      (Array.isArray(videoStream?.side_data_list)
+        ? parseRotationDegrees(videoStream.side_data_list.find((sd: any) => sd?.rotation != null)?.rotation)
+        : null);
+
+    const needsSwap = rotation != null && (rotation === 90 || rotation === 270 || rotation === -90 || rotation === -270);
+    if (needsSwap && width != null && height != null) {
+      [width, height] = [height, width];
+    }
+
+    return {
+      mediaWidth: width,
+      mediaHeight: height,
+      durationSec: duration,
+    };
+  } finally {
+    await fs.unlink(tmpPath).catch(() => {});
+  }
+}
 
 export const mediaService = {
   /**
    * MVP-friendly processing:
    * - images: resize inside max 1080×1080 (preserves aspect), JPEG + square thumb
-   * - videos: upload as-is; dimensions placeholder for masonry layout
+   * - videos: upload as-is; media dimensions extracted from ffprobe (rotation corrected)
    */
   async processAndUpload(file: MulterFile, userId: string, mediaType: MediaType): Promise<ProcessedMedia> {
     const baseKey = `${userId}/${uuidv4()}`;
@@ -84,16 +159,25 @@ export const mediaService = {
 
     await supabaseAdmin.storage
       .from('posts-processed')
-      .upload(mediaKey, file.buffer, { contentType: 'video/mp4', upsert: true });
+      .upload(mediaKey, file.buffer, { contentType: file.mimetype, upsert: true });
 
     const { data: mediaPublic } = supabaseAdmin.storage.from('posts-processed').getPublicUrl(mediaKey);
+
+    // Extract real upright/display dimensions for correct masonry aspect.
+    // If extraction fails, we return null dims; caller will decide fallback.
+    let probe: VideoProbeResult | null = null;
+    try {
+      probe = await probeVideo(file.buffer, file.mimetype);
+    } catch {
+      probe = null;
+    }
 
     return {
       mediaUrl: mediaPublic.publicUrl,
       thumbnailUrl: null,
-      durationSec: 5,
-      mediaWidth: VIDEO_PLACEHOLDER_W,
-      mediaHeight: VIDEO_PLACEHOLDER_H,
+      durationSec: probe?.durationSec ?? null,
+      mediaWidth: probe?.mediaWidth ?? null,
+      mediaHeight: probe?.mediaHeight ?? null,
     };
   },
 };

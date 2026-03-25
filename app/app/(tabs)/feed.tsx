@@ -1,7 +1,7 @@
 // ============================================================
 // app/(tabs)/feed.tsx — Moment feed (Pinterest-style masonry)
 // ============================================================
-import { useEffect, useCallback, useMemo, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState, useRef } from 'react';
 import {
   View,
   RefreshControl,
@@ -44,6 +44,72 @@ export default function FeedScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only
   }, []);
 
+  // ── Viewport-based "invisible line" autoplay ──────────────────────────────
+  //
+  // Only the TOPMOST visible video(s) play — not every visible video.
+  // This is the "horizontal play line near the top of the feed" concept:
+  //
+  //   • 1 video in the zone        → it loops continuously
+  //   • 2 videos, consecutive indices (side-by-side columns) → they take turns
+  //     every PLAY_INTERVAL_MS, then swap back → repeat
+  //   • 2 videos, non-consecutive (one scrolled past, one coming up) → top one only
+  //
+  // visibleVideos: ordered list of up to 2 post IDs in the play zone
+  // playingIdx:    which one is currently active
+  const PLAY_INTERVAL_MS = 4000;
+  const [visibleVideos, setVisibleVideos] = useState<string[]>([]);
+  const [playingIdx, setPlayingIdx] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // When the play-zone set changes, reset to the first video and (re)start the
+  // alternating timer only if there are 2 side-by-side videos.
+  useEffect(() => {
+    setPlayingIdx(0);
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (visibleVideos.length > 1) {
+      timerRef.current = setInterval(() => {
+        setPlayingIdx((prev) => (prev + 1) % visibleVideos.length);
+      }, PLAY_INTERVAL_MS);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [visibleVideos]);
+
+  const playingPostId = visibleVideos[playingIdx] ?? null;
+
+  // viewabilityConfig: 50 % threshold is enough — we pick only the topmost from the result
+  const viewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 50 }), []);
+
+  const onViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: { isViewable: boolean; index: number | null; item: FeedPost }[] }) => {
+      // Take only video items, sorted by list index so "topmost" = smallest index
+      const videoItems = viewableItems
+        .filter((v) => v.isViewable && v.item?.media_type === 'video')
+        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+
+      let topVideos: string[];
+      if (videoItems.length === 0) {
+        topVideos = [];
+      } else if (videoItems.length === 1) {
+        topVideos = [videoItems[0].item.id];
+      } else {
+        // Two videos qualify as "same line" only when they're adjacent in the data
+        // (consecutive indices → one from each column in the 2-col masonry).
+        const [a, b] = videoItems;
+        const sameRow = Math.abs((a.index ?? 0) - (b.index ?? 0)) <= 1;
+        topVideos = sameRow ? [a.item.id, b.item.id] : [a.item.id];
+      }
+
+      setVisibleVideos((prev) => {
+        if (
+          prev.length === topVideos.length &&
+          prev.every((id, i) => id === topVideos[i])
+        ) return prev;
+        return topVideos;
+      });
+    },
+    [],
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: FeedPost }) => (
       <View style={{ width: columnWidth, marginHorizontal: gutter / 2, marginBottom: gutter }}>
@@ -51,10 +117,11 @@ export default function FeedScreen() {
           post={item}
           width={columnWidth}
           onPress={() => router.push(`/post/${item.id}`)}
+          shouldPlay={item.id === playingPostId}
         />
       </View>
     ),
-    [columnWidth, gutter],
+    [columnWidth, gutter, playingPostId],
   );
 
   const bottomPad = 100 + insets.bottom;
@@ -97,6 +164,9 @@ export default function FeedScreen() {
           numColumns={2}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
+          extraData={playingPostId}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
           contentContainerStyle={[
             styles.listContent,
             { paddingBottom: bottomPad, width: innerWidth },

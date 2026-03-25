@@ -12,7 +12,6 @@ interface MapState {
   nearbyFriends: MapFriend[];
   selectedFriendId: string | null;
   isTracking: boolean;
-  isRefreshing: boolean;
   lastNearbyUpdatedAt: number | null;
   locationPermission: 'granted' | 'denied' | 'undetermined';
   watchSubscription: Location.LocationSubscription | null;
@@ -20,16 +19,18 @@ interface MapState {
   requestPermission: () => Promise<boolean>;
   startTracking: () => Promise<void>;
   stopTracking: () => void;
-  refreshNearby: () => Promise<void>;
+  /** Background fetch; updates markers only when payload changes. Pass `{ force: true }` to bypass cooldown (e.g. manual refresh). */
+  refreshNearby: (opts?: { force?: boolean }) => Promise<void>;
   selectFriend: (userId: string | null) => void;
   setVisibility: (visibility: string) => Promise<void>;
 }
 
 let updateTimer: ReturnType<typeof setInterval> | null = null;
 let nearbyPollTimer: ReturnType<typeof setInterval> | null = null;
+let nearbyRefreshInFlight = false;
 let lastNearbySignature = '';
+/** Throttle only — poll still runs while stationary so friend positions can update quietly. */
 let lastNearbyRequestAt: number | null = null;
-let lastNearbyRequestCoords: { latitude: number; longitude: number } | null = null;
 
 const makeNearbySignature = (friends: MapFriend[]) =>
   friends
@@ -37,29 +38,11 @@ const makeNearbySignature = (friends: MapFriend[]) =>
     .sort()
     .join('|');
 
-// Haversine distance (meters) between two lat/lng points.
-const distanceMeters = (
-  a: { latitude: number; longitude: number },
-  b: { latitude: number; longitude: number },
-) => {
-  const toRad = (v: number) => (v * Math.PI) / 180;
-  const R = 6371e3; // earth radius meters
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLng = toRad(b.longitude - a.longitude);
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
-  const s =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  return 2 * R * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
-};
-
 export const useMapStore = create<MapState>((set, get) => ({
   myLocation: null,
   nearbyFriends: [],
   selectedFriendId: null,
   isTracking: false,
-  isRefreshing: false,
   lastNearbyUpdatedAt: null,
   locationPermission: 'undetermined',
   watchSubscription: null,
@@ -123,24 +106,23 @@ export const useMapStore = create<MapState>((set, get) => ({
     watchSubscription?.remove();
     if (updateTimer) clearInterval(updateTimer);
     if (nearbyPollTimer) clearInterval(nearbyPollTimer);
-    set({ isTracking: false, watchSubscription: null, isRefreshing: false });
+    nearbyRefreshInFlight = false;
+    set({ isTracking: false, watchSubscription: null });
   },
 
-  refreshNearby: async () => {
+  refreshNearby: async (opts) => {
     const loc = get().myLocation;
     if (!loc) return;
-    if (get().isRefreshing) return;
+    if (nearbyRefreshInFlight) return;
 
-    const now = Date.now();
-    if (lastNearbyRequestAt && now - lastNearbyRequestAt < MAP.NEARBY_REFRESH_COOLDOWN_MS) return;
-    if (lastNearbyRequestCoords) {
-      const movedMeters = distanceMeters(loc, lastNearbyRequestCoords);
-      if (movedMeters < MAP.NEARBY_REFRESH_DISTANCE_METERS) return;
+    const force = opts?.force === true;
+    if (!force) {
+      const t = Date.now();
+      if (lastNearbyRequestAt && t - lastNearbyRequestAt < MAP.NEARBY_REFRESH_COOLDOWN_MS) return;
     }
 
-    lastNearbyRequestAt = now;
-    lastNearbyRequestCoords = loc;
-    set({ isRefreshing: true });
+    lastNearbyRequestAt = Date.now();
+    nearbyRefreshInFlight = true;
     try {
       const res = await mapApi.getNearbyFriends(loc.latitude, loc.longitude, MAP.DEFAULT_RADIUS_METERS);
       const body = res?.data as { data?: MapFriend[] } | undefined;
@@ -162,7 +144,7 @@ export const useMapStore = create<MapState>((set, get) => ({
     } catch {
       // Preserve previous friend markers if refresh fails to avoid a flashing/empty map.
     } finally {
-      set({ isRefreshing: false });
+      nearbyRefreshInFlight = false;
     }
   },
 

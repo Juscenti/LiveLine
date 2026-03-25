@@ -13,16 +13,22 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  PanResponder,
+  Dimensions,
   useWindowDimensions,
   Image as RNImage,
+  type NativeTouchEvent,
 } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { useEventListener } from 'expo';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { postsApi } from '@/services/api';
 import { useFeedStore } from '@/stores/feedStore';
 import { formatApiError } from '@/utils/apiErrors';
@@ -35,11 +41,33 @@ type Preview = {
   height?: number;
 };
 
-function PreviewVideo({ uri }: { uri: string }) {
+type CaptureMode = 'photo' | 'video';
+
+/**
+ * Plays the preview video and — mirroring what expo-image's onLoad does for photos —
+ * fires onDimensions with the actual pixel dimensions as soon as the video track is
+ * loaded by the player.  The caller validates orientation before trusting the values,
+ * guarding against iOS reporting raw (un-rotated) sensor dimensions.
+ */
+function PreviewVideo({
+  uri,
+  onDimensions,
+}: {
+  uri: string;
+  onDimensions?: (w: number, h: number) => void;
+}) {
   const player = useVideoPlayer(uri, (p) => {
     p.loop = true;
     p.play();
   });
+
+  useEventListener(player, 'videoTrackChange', ({ videoTrack }) => {
+    const size = videoTrack?.size;
+    if (size && size.width > 0 && size.height > 0) {
+      onDimensions?.(size.width, size.height);
+    }
+  });
+
   return (
     <VideoView
       player={player}
@@ -50,17 +78,65 @@ function PreviewVideo({ uri }: { uri: string }) {
   );
 }
 
+/** Translate CameraView zoom (0–1) to a human-readable label. */
+function zoomLabel(z: number): string {
+  const x = 1 + z * 9;
+  return x < 10 ? `${x.toFixed(1)}×` : `${Math.round(x)}×`;
+}
+
 export default function CameraScreen() {
   const { width: winW } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
+  const [cameraReady, setCameraReady] = useState(false);
+  const [zoom, setZoom] = useState(0);
+  const [zoomVisible, setZoomVisible] = useState(false);
+  const [mode, setMode] = useState<CaptureMode>('photo');
   const [isRecording, setIsRecording] = useState(false);
   const [caption, setCaption] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [uploading, setUploading] = useState(false);
   const { prependPost } = useFeedStore();
+
+  const zoomHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Use a ref to read zoom synchronously inside PanResponder (closure can't read state)
+  const zoomRef = useRef(0);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  const pinchRef = useRef<{ dist: number; baseZoom: number } | null>(null);
+
+  const getPinchDist = (touches: NativeTouchEvent[]) => {
+    const dx = touches[0].pageX - touches[1].pageX;
+    const dy = touches[0].pageY - touches[1].pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  // PanResponder lives entirely outside RNGH's touch-interception system, so it
+  // never blocks buttons. It only claims the responder when ≥2 fingers are detected.
+  const pinchResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: (e) => e.nativeEvent.touches.length >= 2,
+      onMoveShouldSetPanResponder: (e) => e.nativeEvent.touches.length >= 2,
+      onPanResponderGrant: (e) => {
+        const { touches } = e.nativeEvent;
+        if (touches.length >= 2) {
+          pinchRef.current = { dist: getPinchDist(touches), baseZoom: zoomRef.current };
+        }
+      },
+      onPanResponderMove: (e) => {
+        const { touches } = e.nativeEvent;
+        if (!pinchRef.current || touches.length < 2) return;
+        const newDist = getPinchDist(touches);
+        if (pinchRef.current.dist <= 0) return;
+        const ratio = newDist / pinchRef.current.dist;
+        const next = Math.min(1, Math.max(0, pinchRef.current.baseZoom + (ratio - 1) * 0.5));
+        showZoomLabel(next);
+      },
+      onPanResponderRelease: () => { pinchRef.current = null; },
+      onPanResponderTerminate: () => { pinchRef.current = null; },
+    })
+  ).current;
 
   const previewStageStyle = useMemo(() => {
     const horizontalPad = SPACING.base * 2;
@@ -72,7 +148,7 @@ export default function CameraScreen() {
       preview.width > 0 &&
       preview.height > 0
         ? Math.min(Math.max(preview.width / preview.height, 0.2), 6)
-        : 3 / 4;
+        : preview?.type === 'video' ? 9 / 16 : 3 / 4;
     return {
       width: stageW,
       alignSelf: 'center' as const,
@@ -86,6 +162,14 @@ export default function CameraScreen() {
   useEffect(() => {
     void requestPermission();
   }, [requestPermission]);
+
+  // Flipping the camera reinitializes the hardware — must wait for onCameraReady again.
+  // Mode changes (photo ↔ video) do NOT reinitialize hardware; onCameraReady won't re-fire,
+  // so we must NOT reset cameraReady on mode changes or the shutter stays disabled forever.
+  useEffect(() => {
+    setCameraReady(false);
+    setZoom(0);
+  }, [facing]);
 
   /** Gallery picks sometimes omit width/height — measure file so preview frame matches the photo */
   useEffect(() => {
@@ -107,27 +191,83 @@ export default function CameraScreen() {
     };
   }, [preview?.uri, preview?.type]);
 
+  const showZoomLabel = (z: number) => {
+    setZoom(z);
+    setZoomVisible(true);
+    if (zoomHideTimer.current) clearTimeout(zoomHideTimer.current);
+    zoomHideTimer.current = setTimeout(() => setZoomVisible(false), 1500);
+  };
+
+
   const takePicture = async () => {
-    const photo = await cameraRef.current?.takePictureAsync({ quality: 0.85 });
-    if (photo) {
-      setPreview({
-        uri: photo.uri,
-        type: 'image',
-        width: photo.width,
-        height: photo.height,
-      });
+    if (!cameraRef.current || !cameraReady) return;
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
+      if (photo) {
+        setPreview({ uri: photo.uri, type: 'image', width: photo.width, height: photo.height });
+      }
+    } catch (e: unknown) {
+      Alert.alert("Couldn't capture photo", String((e as Error)?.message ?? e));
     }
   };
 
   const startRecording = async () => {
+    if (!cameraRef.current || !cameraReady) return;
+    if (isRecording) return;
+
+    // Snapshot orientation *before* recording begins (user may rotate mid-recording;
+    // we want the orientation they framed the shot with, not where they ended up).
+    const screen = Dimensions.get('window');
+    const captureInPortrait = screen.height > screen.width;
+
     setIsRecording(true);
-    const video = await cameraRef.current?.recordAsync({ maxDuration: POST.MAX_DURATION_SEC });
-    if (video) setPreview({ uri: video.uri, type: 'video' });
-    setIsRecording(false);
+    try {
+      const video = await cameraRef.current.recordAsync({ maxDuration: POST.MAX_DURATION_SEC });
+      if (video) {
+        const v = video as { uri: string; width?: number; height?: number };
+        let w = v.width;
+        let h = v.height;
+
+        // expo-camera's recordAsync rarely returns width/height on iOS (the type only
+        // guarantees `uri`). When it does return raw sensor dims they're landscape even
+        // for a portrait recording — swap them if needed.
+        if (w && h && w > h && captureInPortrait) {
+          [w, h] = [h, w];
+        }
+
+        // If recordAsync gave us no dims at all (the common iOS case), infer the
+        // aspect from the orientation we snapshotted above.  This is the value that
+        // gets stored as media_width/media_height in the DB and drives the feed tile.
+        if (!w || !h) {
+          w = captureInPortrait ? 9 : 16;
+          h = captureInPortrait ? 16 : 9;
+        }
+
+        setPreview({ uri: v.uri, type: 'video', width: w, height: h });
+      }
+    } catch (e: unknown) {
+      Alert.alert("Couldn't record video", String((e as Error)?.message ?? e));
+    } finally {
+      setIsRecording(false);
+    }
   };
 
   const stopRecording = () => {
-    cameraRef.current?.stopRecording();
+    try {
+      cameraRef.current?.stopRecording();
+    } catch {
+      // no-op
+    }
+  };
+
+  const onShutterPress = () => {
+    if (mode === 'photo') {
+      void takePicture();
+    } else if (isRecording) {
+      stopRecording();
+    } else {
+      void startRecording();
+    }
   };
 
   const pickFromGallery = async () => {
@@ -152,7 +292,6 @@ export default function CameraScreen() {
     setUploading(true);
     try {
       const form = new FormData();
-
       if (preview.type === 'image') {
         const manipulated = await ImageManipulator.manipulateAsync(
           preview.uri,
@@ -179,9 +318,7 @@ export default function CameraScreen() {
           form.append('client_media_height', String(preview.height));
         }
       }
-
       if (caption.trim()) form.append('caption', caption.trim());
-
       const { data } = await postsApi.create(form);
       prependPost(data.data);
       router.replace('/(tabs)/feed');
@@ -192,6 +329,7 @@ export default function CameraScreen() {
     }
   };
 
+  // ── Permission gate ──────────────────────────────────────────────────────────
   if (!permission?.granted) {
     return (
       <View style={styles.permContainer}>
@@ -203,6 +341,7 @@ export default function CameraScreen() {
     );
   }
 
+  // ── Preview / post flow ──────────────────────────────────────────────────────
   if (preview) {
     return (
       <KeyboardAvoidingView
@@ -232,7 +371,28 @@ export default function CameraScreen() {
                 transition={300}
               />
             ) : (
-              <PreviewVideo uri={preview.uri} />
+              <PreviewVideo
+                uri={preview.uri}
+                onDimensions={(measuredW, measuredH) => {
+                  // Mirror expo-image's onLoad: use the exact pixel dimensions the
+                  // player reports, then correct the orientation so the stored
+                  // dimensions match what the preview frame is showing.
+                  const measuredPortrait = measuredH > measuredW;
+                  const previewPortrait = (preview?.height ?? 16) > (preview?.width ?? 9);
+
+                  // If orientation doesn't match, swap (measured dims are likely the
+                  // raw sensor dims; we want display-correct dims that match
+                  // the preview stage).
+                  const finalW = measuredPortrait === previewPortrait ? measuredW : measuredH;
+                  const finalH = measuredPortrait === previewPortrait ? measuredH : measuredW;
+
+                  setPreview((p) => {
+                    if (!p) return p;
+                    if (p.width === finalW && p.height === finalH) return p;
+                    return { ...p, width: finalW, height: finalH };
+                  });
+                }}
+              />
             )}
           </View>
 
@@ -265,85 +425,223 @@ export default function CameraScreen() {
     );
   }
 
+  // ── Camera view ──────────────────────────────────────────────────────────────
   return (
-    <View style={styles.flex}>
-      <CameraView ref={cameraRef} style={styles.camera} facing={facing} />
+    // panHandlers are on the root view so two-finger pinch is always detected.
+    // Single-finger taps are NOT claimed by PanResponder (onStartShouldSetPanResponder
+    // returns false for < 2 fingers), so every button fires normally.
+    <View style={styles.flex} {...pinchResponder.panHandlers}>
+      {/* Full-screen viewfinder */}
+      <CameraView
+        ref={cameraRef}
+        style={StyleSheet.absoluteFillObject}
+        facing={facing}
+        zoom={zoom}
+        mode={mode === 'video' ? 'video' : 'picture'}
+        onCameraReady={() => setCameraReady(true)}
+      />
 
-      <View style={styles.overlay}>
-        <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-          <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-            <Text style={styles.closeBtn}>✕</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setFacing(facing === 'back' ? 'front' : 'back')}>
-            <Text style={styles.flipBtn}>Flip</Text>
-          </TouchableOpacity>
+      {/* Close button */}
+      <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={14}>
+          <Ionicons name="close" size={30} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Transient zoom label */}
+      {zoomVisible && (
+        <View style={styles.zoomLabelWrap} pointerEvents="none">
+          <View style={styles.zoomLabelBubble}>
+            <Text style={styles.zoomLabelText}>{zoomLabel(zoom)}</Text>
+          </View>
         </View>
+      )}
 
-        <View style={styles.hintRow}>
-          <Text style={styles.hint}>{POST.MAX_DURATION_SEC}s max video · tap shutter · hold for video</Text>
-        </View>
-
-        <View style={[styles.controls, { paddingBottom: insets.bottom + 24 }]}>
-          <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery}>
-            <Text style={styles.galleryBtnText}>Library</Text>
-          </TouchableOpacity>
-
+      {/* Bottom controls — gradient scrim + mode tabs + shutter row */}
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.72)', '#000']}
+        style={[styles.bottomPanel, { paddingBottom: insets.bottom + 12 }]}
+      >
+        {/* Mode selector */}
+        <View style={styles.modeRow}>
           <TouchableOpacity
-            style={[styles.shutterBtn, isRecording && styles.shutterRecording]}
-            onPress={isRecording ? stopRecording : takePicture}
-            onLongPress={startRecording}
-            delayLongPress={200}
+            onPress={() => setMode('video')}
+            disabled={isRecording}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Video mode"
+          >
+            <Text style={[styles.modeText, mode === 'video' && styles.modeTextActive]}>
+              VIDEO
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setMode('photo')}
+            disabled={isRecording}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Photo mode"
+          >
+            <Text style={[styles.modeText, mode === 'photo' && styles.modeTextActive]}>
+              PHOTO
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Shutter row: gallery | shutter | flip */}
+        <View style={styles.shutterRow}>
+          {/* Gallery */}
+          <TouchableOpacity
+            style={styles.sideBtn}
+            onPress={pickFromGallery}
+            disabled={isRecording}
+            hitSlop={8}
+            accessibilityLabel="Open gallery"
+          >
+            <Ionicons
+              name="image-outline"
+              size={28}
+              color={isRecording ? 'rgba(255,255,255,0.3)' : '#fff'}
+            />
+          </TouchableOpacity>
+
+          {/* Shutter */}
+          <TouchableOpacity
+            style={[
+              styles.shutterBtn,
+              isRecording && styles.shutterBtnRecording,
+              !cameraReady && styles.shutterBtnDisabled,
+            ]}
+            onPress={onShutterPress}
+            disabled={!cameraReady}
+            activeOpacity={0.8}
+            accessibilityLabel={isRecording ? 'Stop recording' : mode === 'photo' ? 'Take photo' : 'Start recording'}
           >
             <View style={[styles.shutterInner, isRecording && styles.shutterInnerRecording]} />
           </TouchableOpacity>
 
-          <View style={{ width: 72 }} />
+          {/* Flip */}
+          <TouchableOpacity
+            style={styles.sideBtn}
+            onPress={() => setFacing(facing === 'back' ? 'front' : 'back')}
+            disabled={isRecording}
+            hitSlop={8}
+            accessibilityLabel="Flip camera"
+          >
+            <Ionicons
+              name="camera-reverse-outline"
+              size={28}
+              color={isRecording ? 'rgba(255,255,255,0.3)' : '#fff'}
+            />
+          </TouchableOpacity>
         </View>
-      </View>
+      </LinearGradient>
     </View>
   );
 }
 
+// ── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: '#000' },
-  camera: { flex: 1 },
-  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between' },
+
+  // Top
   topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     paddingHorizontal: SPACING.base,
+    zIndex: 10,
   },
-  closeBtn: { color: '#fff', fontSize: FONTS.sizes.xl, fontWeight: FONTS.weights.bold },
-  flipBtn: { color: COLORS.accent, fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semibold },
-  hintRow: { alignItems: 'center' },
-  hint: { color: 'rgba(255,255,255,0.45)', fontSize: FONTS.sizes.xs, textAlign: 'center', paddingHorizontal: SPACING.sm },
-  controls: {
+
+  // Zoom label
+  zoomLabelWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  zoomLabelBubble: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  zoomLabelText: {
+    color: '#fff',
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.semibold,
+  },
+
+  // Bottom panel
+  bottomPanel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 40,
+    zIndex: 10,
+  },
+
+  // Mode selector
+  modeRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: SPACING.xl,
+    marginBottom: SPACING.lg,
+  },
+  modeText: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.bold,
+    letterSpacing: 1.6,
+  },
+  modeTextActive: {
+    color: '#fff',
+    fontSize: FONTS.sizes.sm,
+  },
+
+  // Shutter row
+  shutterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.xl,
+    paddingHorizontal: SPACING.xl * 1.5,
+    marginBottom: SPACING.md,
   },
-  galleryBtn: {
-    width: 72,
-    height: 44,
-    borderRadius: RADIUS.md,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  sideBtn: {
+    width: 52,
+    height: 52,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  galleryBtnText: { color: '#fff', fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semibold },
   shutterBtn: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     borderWidth: 4,
     borderColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  shutterRecording: { borderColor: COLORS.error },
-  shutterInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff' },
-  shutterInnerRecording: { borderRadius: 8, backgroundColor: COLORS.error },
+  shutterBtnRecording: { borderColor: COLORS.error },
+  shutterBtnDisabled: { opacity: 0.4 },
+  shutterInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#fff',
+  },
+  shutterInnerRecording: {
+    borderRadius: 10,
+    backgroundColor: COLORS.error,
+    width: 34,
+    height: 34,
+  },
+
+  // Permissions
   permContainer: {
     flex: 1,
     backgroundColor: COLORS.bg,
@@ -351,7 +649,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: SPACING.xl,
   },
-  permText: { color: COLORS.textSecondary, textAlign: 'center', marginBottom: SPACING.lg },
+  permText: {
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginBottom: SPACING.lg,
+  },
   permBtn: {
     backgroundColor: COLORS.accent,
     borderRadius: RADIUS.md,
@@ -359,6 +661,8 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.md,
   },
   permBtnText: { color: COLORS.textInverse, fontWeight: FONTS.weights.bold },
+
+  // Preview / post
   previewScroll: { flexGrow: 1, backgroundColor: COLORS.bg },
   previewToolbar: {
     flexDirection: 'row',
@@ -367,8 +671,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.base,
     paddingBottom: SPACING.md,
   },
-  discardBtn: { color: COLORS.error, fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semibold },
-  previewTitle: { color: COLORS.textPrimary, fontSize: FONTS.sizes.md, fontWeight: FONTS.weights.semibold },
+  discardBtn: {
+    color: COLORS.error,
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.semibold,
+  },
+  previewTitle: {
+    color: COLORS.textPrimary,
+    fontSize: FONTS.sizes.md,
+    fontWeight: FONTS.weights.semibold,
+  },
   previewMedia: { width: '100%', height: '100%' },
   previewHint: {
     color: COLORS.textTertiary,
@@ -397,5 +709,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   postBtnDisabled: { opacity: 0.55 },
-  postBtnText: { color: COLORS.textInverse, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.md },
+  postBtnText: {
+    color: COLORS.textInverse,
+    fontWeight: FONTS.weights.bold,
+    fontSize: FONTS.sizes.md,
+  },
 });

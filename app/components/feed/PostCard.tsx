@@ -1,9 +1,11 @@
 // ============================================================
 // components/feed/PostCard.tsx — Masonry tile (Pinterest-style)
 // ============================================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { Image } from 'expo-image';
+import { VideoView, useVideoPlayer } from 'expo-video';
+import { useEventListener } from 'expo';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, FEED } from '@/constants';
 import { useAuthStore } from '@/stores/authStore';
@@ -24,58 +26,103 @@ interface Props {
   post: FeedPost;
   width: number;
   onPress: () => void;
+  shouldPlay?: boolean;
 }
 
-/**
- * Masonry tile height from media aspect (Pinterest-style stagger).
- * `cover` fills each tile edge-to-edge.
- * - Max height: very tall portraits don’t swallow the feed.
- * - Min height: ultra-wide (w/h ≫ 1) used to make height = width/aspect tiny → “pill” strips; floor fixes that.
- */
 const MAX_TILE_HEIGHT_FACTOR = 6;
 const MIN_TILE_HEIGHT_FACTOR = 0.52;
 
-export default function PostCard({ post, width, onPress }: Props) {
+export default function PostCard({ post, width, onPress, shouldPlay = false }: Props) {
   const user = useAuthStore((s) => s.user);
   const deletePost = useFeedStore((s) => s.deletePost);
   const isOwner =
     user?.id != null &&
     (isSameUserId(user.id, post.user_id) || isSameUserId(user.id, post.author?.id));
 
-  const uri =
+  const thumbnailUri =
     post.media_type === 'video'
       ? (post.thumbnail_url || '').trim()
       : (post.media_url || post.thumbnail_url || '').trim();
-  const showImage = uri.length > 0;
+  const showImage = thumbnailUri.length > 0;
 
-  /**
-   * Prefer decoded pixels (expo-image onLoad). Fallback: RN Image.getSize — onLoad can be 0×0 on some devices.
-   */
+  // ── Thumbnail-based aspect measurement (images + video thumbnails) ────────
   const [decodedAspect, setDecodedAspect] = useState<number | null>(null);
   useEffect(() => {
     setDecodedAspect(null);
-  }, [post.id, uri]);
+  }, [post.id, thumbnailUri]);
 
   useEffect(() => {
-    if (!uri || !showImage) return;
+    if (!thumbnailUri || !showImage) return;
     let cancelled = false;
-    void measureImageAspectFromUri(uri).then((r) => {
+    void measureImageAspectFromUri(thumbnailUri).then((r) => {
       if (cancelled || r == null) return;
       setDecodedAspect((prev) => prev ?? r);
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [uri, showImage, post.id]);
+    return () => { cancelled = true; };
+  }, [thumbnailUri, showImage, post.id]);
 
-  const aspect = decodedAspect ?? getPostMediaAspectRatio(post);
+  // ── Video player (shared for dim-measurement + autoplay) ──────────────────
+  // Created for every video post. When shouldPlay=false and a thumbnail exists,
+  // the source is null so the player is a no-op.
+  // When shouldPlay=true OR there is no thumbnail (need metadata for tile height),
+  // the source is the media_url so the player can fire videoTrackChange.
+  const isVideo = post.media_type === 'video';
+  const videoSource = isVideo ? (post.media_url ?? null) : null;
+  // Only activate the player when we actually need it
+  const activeSource = isVideo && (shouldPlay || !showImage) ? videoSource : null;
+
+  const videoPlayer = useVideoPlayer(activeSource, (p) => {
+    p.loop = true;
+    p.muted = true;
+  });
+
+  // When shouldPlay changes, drive play/pause imperatively
+  useEffect(() => {
+    if (!isVideo || !activeSource) return;
+    if (shouldPlay) {
+      videoPlayer.play();
+    } else {
+      videoPlayer.pause();
+    }
+  }, [shouldPlay, isVideo, activeSource, videoPlayer]);
+
+  // Measure aspect from video track metadata — used as LAST RESORT fallback.
+  // DB dims (below) take priority because they come from orientation-corrected values
+  // (camera.tsx swaps raw dims at record time; gallery picks are re-encoded by image picker).
+  // videoTrackChange reports raw iOS stream dims and can be wrong for camera recordings.
+  const [trackAspect, setTrackAspect] = useState<number | null>(null);
+  useEffect(() => { setTrackAspect(null); }, [post.id]);
+
+  useEventListener(videoPlayer, 'videoTrackChange', ({ videoTrack }) => {
+    const size = videoTrack?.size;
+    if (size && size.width > 0 && size.height > 0) {
+      setTrackAspect((prev) => prev ?? normalizeAspectFromPixels(size.width, size.height));
+    }
+  });
+
+  // ── Aspect for videos ────────────────────────────────────────────────────
+  // Prefer DB dimensions first so camera-taken uploads use the same aspect as
+  // they were recorded (backend extracts real upright dims). Only fall back
+  // to decoded/track measurement when DB dims are missing.
+  const aspect = (() => {
+    if (isVideo) {
+      const w = Number(post.media_width);
+      const h = Number(post.media_height);
+      if (w > 0 && h > 0) return normalizeAspectFromPixels(w, h);
+      if (decodedAspect != null) return decodedAspect;
+      if (trackAspect != null) return trackAspect;
+      return 9 / 16; // last resort (legacy / no dims)
+    }
+    return decodedAspect ?? getPostMediaAspectRatio(post);
+  })();
+
   const naturalH = width / aspect;
   const imageHeight = Math.min(
     Math.max(naturalH, width * MIN_TILE_HEIGHT_FACTOR),
     width * MAX_TILE_HEIGHT_FACTOR,
   );
 
-  const handleMenu = () => {
+  const handleMenu = useCallback(() => {
     if (!isOwner) {
       Alert.alert('Post', 'More options coming soon.');
       return;
@@ -96,16 +143,24 @@ export default function PostCard({ post, width, onPress }: Props) {
         },
       },
     ]);
-  };
+  }, [isOwner, deletePost, post.id]);
 
   return (
     <View style={[styles.card, { width }]}>
       <TouchableOpacity onPress={onPress} activeOpacity={0.92}>
         <View style={[styles.media, { height: imageHeight, width, borderRadius: FEED.tileRadius }]}>
-          {showImage ? (
+          {/* Autoplay video — shown when shouldPlay is true and media_url is available */}
+          {shouldPlay && isVideo && post.media_url ? (
+            <VideoView
+              player={videoPlayer}
+              style={[styles.fill, { borderRadius: FEED.tileRadius }]}
+              contentFit="cover"
+              nativeControls={false}
+            />
+          ) : showImage ? (
             <Image
-              source={{ uri, cacheKey: post.id }}
-              style={[styles.image, { borderRadius: FEED.tileRadius }]}
+              source={{ uri: thumbnailUri, cacheKey: post.id }}
+              style={[styles.fill, { borderRadius: FEED.tileRadius }]}
               contentFit="cover"
               transition={200}
               cachePolicy="memory-disk"
@@ -123,7 +178,7 @@ export default function PostCard({ post, width, onPress }: Props) {
             </View>
           )}
 
-          {post.media_type === 'video' && (
+          {isVideo && !shouldPlay && (
             <View style={styles.videoBadge}>
               <Text style={styles.videoBadgeText}>▶ {post.duration_sec?.toFixed(0) ?? '5'}s</Text>
             </View>
@@ -160,18 +215,13 @@ export default function PostCard({ post, width, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    overflow: 'visible',
-  },
+  card: { overflow: 'visible' },
   media: {
     position: 'relative',
     backgroundColor: '#111',
     overflow: 'hidden',
   },
-  image: {
-    width: '100%',
-    height: '100%',
-  },
+  fill: { width: '100%', height: '100%' },
   videoPlaceholder: {
     flex: 1,
     justifyContent: 'center',
@@ -207,10 +257,7 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingHorizontal: 2,
   },
-  usernameTouch: {
-    flex: 1,
-    marginRight: 8,
-  },
+  usernameTouch: { flex: 1, marginRight: 8 },
   username: {
     color: COLORS.textPrimary,
     fontSize: FONTS.sizes.sm,
