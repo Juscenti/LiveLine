@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useMusicStore } from '@/stores/musicStore';
@@ -13,9 +13,12 @@ export default function MusicCallbackScreen() {
   }>();
   const { connectPlatform, startPolling, syncNowPlaying } = useMusicStore();
   const [status, setStatus] = useState<'connecting' | 'done'>('connecting');
+  const hasRun = useRef(false); // ADD THIS
 
   useEffect(() => {
     if (!provider) return;
+    if (hasRun.current) return; // ADD THIS
+    hasRun.current = true;      // ADD THIS
 
     const run = async () => {
       try {
@@ -48,7 +51,7 @@ export default function MusicCallbackScreen() {
     };
 
     void run();
-  }, [provider, code, token, state, connectPlatform, startPolling, syncNowPlaying]);
+  }, []);
 
   return (
     <View style={styles.container}>
