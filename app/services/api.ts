@@ -199,6 +199,7 @@ export const musicApi = {
     api.post('/music/connect/spotify', { code, state, redirectUri }),
   connectAppleMusic: (token: string) => api.post('/music/connect/apple', { token }),
   connectSoundCloud: (code: string) => api.post('/music/connect/soundcloud', { code }),
+  getConnectedPlatforms: () => api.get('/music/connect/platforms'),
   getSpotifyAuthUrl: (redirectUri?: string) =>
     api.get('/music/connect/spotify/auth-url', { params: { redirectUri } }),
   getAppleMusicAuthUrl: () => api.get('/music/connect/apple/auth-url'),

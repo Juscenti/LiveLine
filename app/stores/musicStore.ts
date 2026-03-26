@@ -14,6 +14,8 @@ interface MusicState {
   isSyncing: boolean;
 
   syncNowPlaying: () => Promise<void>;
+  hydrateConnectedPlatforms: () => Promise<void>;
+  resetMusicSession: () => void;
   startPolling: () => void;
   stopPolling: () => void;
   connectPlatform: (platform: MusicPlatform, token: string, oauthState?: string) => Promise<void>;
@@ -32,13 +34,35 @@ export const useMusicStore = create<MusicState>((set) => ({
   syncNowPlaying: async () => {
     set({ isSyncing: true });
     try {
-      const { data } = await musicApi.syncNowPlaying();
-      set({ nowPlaying: data.data });
+      const res = await musicApi.syncNowPlaying();
+      const body = res.data as { data?: MusicTrack | null };
+      set({ nowPlaying: body?.data ?? null });
     } catch {
       // No connected platform or not playing
     } finally {
       set({ isSyncing: false });
     }
+  },
+
+  hydrateConnectedPlatforms: async () => {
+    try {
+      const res = await musicApi.getConnectedPlatforms();
+      const body = res.data as { data?: { platforms?: MusicPlatform[] } };
+      const list = body?.data?.platforms;
+      if (Array.isArray(list)) {
+        set({ connectedPlatforms: [...new Set(list)] as MusicPlatform[] });
+      }
+    } catch {
+      /* keep existing */
+    }
+  },
+
+  resetMusicSession: () => {
+    if (syncTimer) {
+      clearInterval(syncTimer);
+      syncTimer = null;
+    }
+    set({ nowPlaying: null, connectedPlatforms: [], topTracks: [], isSyncing: false });
   },
 
   startPolling: () => {
@@ -79,8 +103,10 @@ export const useMusicStore = create<MusicState>((set) => ({
 
   fetchTopTracks: async (userId) => {
     try {
-      const { data } = await musicApi.getTopTracks(userId);
-      set({ topTracks: data.data ?? [] });
+      const res = await musicApi.getTopTracks(userId);
+      const body = res.data as { data?: MusicTrack[] };
+      const list = body?.data ?? (Array.isArray(res.data) ? (res.data as MusicTrack[]) : []);
+      set({ topTracks: Array.isArray(list) ? list : [] });
     } catch {
       set({ topTracks: [] });
     }

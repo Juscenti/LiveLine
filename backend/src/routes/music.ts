@@ -8,6 +8,19 @@ import { issueSpotifyOAuthState } from '../services/oauthStateStore';
 
 const router = Router();
 
+// Register before any `/:userId/...` routes so `connect` is never captured as a user id.
+router.get('/connect/platforms', requireAuth, async (req: AuthRequest, res: Response) => {
+  const { data, error } = await supabaseAdmin
+    .from('music_connections')
+    .select('platform')
+    .eq('user_id', req.userId)
+    .eq('is_active', true);
+
+  if (error) return res.status(500).json({ error: error.message, data: null });
+  const platforms = (data ?? []).map((row) => row.platform).filter(Boolean);
+  return res.json({ data: { platforms }, error: null });
+});
+
 function isAllowedSpotifyRedirectUri(uri: string): boolean {
   // Allow app deep links + Expo dev-client URLs + (optional) hosted callback pages.
   // This prevents arbitrary redirect_uri injection.
@@ -125,7 +138,9 @@ router.get('/:userId/now-playing', requireAuth, async (req: AuthRequest, res: Re
     .from('music_activity')
     .select('*')
     .eq('user_id', req.params.userId)
-    .eq('is_currently_playing', true)
+    .order('is_currently_playing', { ascending: false })
+    .order('updated_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) return res.status(500).json({ error: error.message, data: null });

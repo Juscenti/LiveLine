@@ -22,6 +22,7 @@ import { COLORS, FONTS } from '@/constants';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
+import { useMusicStore } from '@/stores/musicStore';
 
 /** Reference proportions: bar ≈ 2.5× icon height; icon ≈ 40% of bar. */
 const ICON_SIZE = 23;
@@ -236,10 +237,29 @@ function FriendsInboxPrefetch() {
   return null;
 }
 
+function MusicLifecyclePrefetch() {
+  const session = useAuthStore((s) => s.session);
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      useMusicStore.getState().resetMusicSession();
+      return;
+    }
+    void (async () => {
+      await useMusicStore.getState().hydrateConnectedPlatforms();
+      await useMusicStore.getState().syncNowPlaying();
+      useMusicStore.getState().startPolling();
+    })();
+  }, [session?.access_token]);
+
+  return null;
+}
+
 export default function TabsLayout() {
   return (
     <View style={{ flex: 1 }}>
       <FriendsInboxPrefetch />
+      <MusicLifecyclePrefetch />
       <Tabs
         tabBar={(props) => <FloatingTabBar {...props} />}
         screenOptions={{

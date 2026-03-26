@@ -15,14 +15,15 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { usersApi, postsApi, friendsApi } from '@/services/api';
+import { usersApi, postsApi, friendsApi, musicApi } from '@/services/api';
 import { getOrCreateDirectConversation } from '@/services/conversations';
 import { useAuthStore } from '@/stores/authStore';
 import { COLORS, SPACING, FONTS, FEED } from '@/constants';
 import PostThumb from '@/components/feed/PostThumb';
+import MusicBadge from '@/components/music/MusicBadge';
 import { AppHeader, PillButton, UserAvatar, UserNameBlock } from '@/components/shared';
 import { formatApiError } from '@/utils/apiErrors';
-import type { User, Post } from '@/types';
+import type { User, Post, MusicTrack } from '@/types';
 
 type RelStatus =
   | 'none'
@@ -45,6 +46,7 @@ export default function PublicProfileScreen() {
     friendshipId: null,
   });
   const [chatLoading, setChatLoading] = useState(false);
+  const [theirMusic, setTheirMusic] = useState<MusicTrack | null>(null);
 
   const isMe = me?.id === id;
 
@@ -80,6 +82,18 @@ export default function PublicProfileScreen() {
   useEffect(() => {
     void loadRelationship();
   }, [loadRelationship]);
+
+  useEffect(() => {
+    if (!id) return;
+    musicApi
+      .getNowPlaying(id)
+      .then((r) => {
+        const row = (r.data as { data?: MusicTrack | null })?.data ?? null;
+        if (row?.song && row?.source) setTheirMusic(row);
+        else setTheirMusic(null);
+      })
+      .catch(() => setTheirMusic(null));
+  }, [id]);
 
   const openChat = async () => {
     if (!id) return;
@@ -228,6 +242,12 @@ export default function PublicProfileScreen() {
           {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
         </View>
 
+        {theirMusic?.song && theirMusic?.source ? (
+          <View style={styles.musicWrap}>
+            <MusicBadge track={theirMusic} />
+          </View>
+        ) : null}
+
         <View style={[styles.grid, { gap: profileGutter }]}>
           {posts.map((post) => (
             <PostThumb
@@ -267,6 +287,10 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     marginTop: SPACING.sm,
     lineHeight: 20,
+  },
+  musicWrap: {
+    paddingHorizontal: SPACING.base,
+    marginTop: SPACING.md,
   },
   grid: {
     flexDirection: 'row',

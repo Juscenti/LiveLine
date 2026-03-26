@@ -22,6 +22,14 @@ async function getSpotifyConnection(userId: string) {
   return data ?? null;
 }
 
+async function clearUserNowPlayingFlags(userId: string) {
+  await supabaseAdmin
+    .from('music_activity')
+    .update({ is_currently_playing: false })
+    .eq('user_id', userId)
+    .eq('is_currently_playing', true);
+}
+
 async function refreshSpotifyAccessToken(conn: any) {
   if (!conn?.refresh_token) throw new Error('Missing Spotify refresh token.');
   const clientId = process.env.SPOTIFY_CLIENT_ID;
@@ -89,7 +97,19 @@ export const musicService = {
         Authorization: `Basic ${basic}`,
       },
       timeout: 20000,
+      validateStatus: () => true,
     });
+
+    if (tokenResp.status >= 400) {
+      const errBody = tokenResp.data as { error?: string; error_description?: string } | undefined;
+      const detail =
+        (typeof errBody?.error_description === 'string' && errBody.error_description) ||
+        (typeof errBody?.error === 'string' && errBody.error) ||
+        '';
+      throw new Error(
+        detail || `Spotify token exchange failed (${tokenResp.status}). Check redirect URI matches Spotify app settings.`,
+      );
+    }
 
     const token: SpotifyTokenResponse = tokenResp.data;
     const expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString();
@@ -164,12 +184,22 @@ export const musicService = {
       validateStatus: () => true,
     });
 
-    // 204 means nothing is playing.
-    if (resp.status === 204) return null;
+    // 204 = nothing playing. 401/403/404 often = free-tier / no playback scope / no active device — don't 500 the app.
+    if (resp.status === 204) {
+      await clearUserNowPlayingFlags(userId);
+      return null;
+    }
+    if (resp.status === 401 || resp.status === 403 || resp.status === 404 || resp.status === 429) {
+      await clearUserNowPlayingFlags(userId);
+      return null;
+    }
     if (resp.status >= 400) throw new Error(`Spotify currently-playing failed (${resp.status}).`);
 
     const item = resp.data?.item;
-    if (!item) return null;
+    if (!item) {
+      await clearUserNowPlayingFlags(userId);
+      return null;
+    }
 
     const song = item?.name;
     const artists = Array.isArray(item?.artists) ? item.artists : [];

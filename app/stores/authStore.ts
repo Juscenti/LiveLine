@@ -7,6 +7,7 @@ import { supabase } from '@/services/supabase';
 import { authApi, wakeBackend } from '@/services/api';
 import { clearAccessToken, setAccessToken } from '@/services/accessTokenStore';
 import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
+import { useMusicStore } from '@/stores/musicStore';
 import { useNotificationStore } from '@/stores/notificationStore';
 import type { User } from '@/types';
 
@@ -76,6 +77,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           const uid = get().user?.id;
           if (uid) void useNotificationStore.getState().clearCachedForUser(uid);
           useNotificationStore.getState().reset();
+          useMusicStore.getState().resetMusicSession();
           set({ user: null, session: null });
           return;
         }
@@ -188,6 +190,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     clearAccessToken();
     useFriendsInboxStore.getState().clear();
+    useMusicStore.getState().resetMusicSession();
     if (uid) void useNotificationStore.getState().clearCachedForUser(uid);
     useNotificationStore.getState().reset();
     set({ user: null, session: null });

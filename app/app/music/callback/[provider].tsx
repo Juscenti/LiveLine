@@ -11,7 +11,7 @@ export default function MusicCallbackScreen() {
     token?: string;
     state?: string;
   }>();
-  const { connectPlatform, startPolling } = useMusicStore();
+  const { connectPlatform, startPolling, syncNowPlaying } = useMusicStore();
   const [status, setStatus] = useState<'connecting' | 'done'>('connecting');
 
   useEffect(() => {
@@ -37,17 +37,18 @@ export default function MusicCallbackScreen() {
         }
 
         await connectPlatform(platform, value, oauthState);
-        if (platform === 'spotify') startPolling();
+        startPolling();
+        await syncNowPlaying();
         setStatus('done');
-        router.replace('/music/connect');
+        router.replace('/(tabs)/profile');
       } catch (e: any) {
         Alert.alert('Music connect failed', e?.message ?? 'Unknown error');
-        router.replace('/music/connect');
+        router.replace('/(tabs)/profile');
       }
     };
 
     void run();
-  }, [provider, code, token, state, connectPlatform]);
+  }, [provider, code, token, state, connectPlatform, startPolling, syncNowPlaying]);
 
   return (
     <View style={styles.container}>

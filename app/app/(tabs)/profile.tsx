@@ -431,7 +431,7 @@ export default function ProfileScreen() {
   const user = useAuthStore((s) => s.user);
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const friendsCount = useFriendsInboxStore((s) => s.friends.length);
-  const { nowPlaying } = useMusicStore();
+  const { nowPlaying, syncNowPlaying } = useMusicStore();
   const [posts, setPosts] = useState<Post[]>([]);
 
   const totalLikes = useMemo(
@@ -459,7 +459,8 @@ export default function ProfileScreen() {
     useCallback(() => {
       void refreshUser();
       void useFriendsInboxStore.getState().fetch({ withSpinner: false, silent: true });
-    }, [refreshUser]),
+      void syncNowPlaying();
+    }, [refreshUser, syncNowPlaying]),
   );
 
   const bottomPad = TAB_BAR.height + TAB_BAR.bottomGap + insets.bottom + SPACING.lg;

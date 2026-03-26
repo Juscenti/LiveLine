@@ -9,7 +9,8 @@ import { musicApi } from '@/services/api';
 import * as Linking from 'expo-linking';
 
 export default function MusicConnectScreen() {
-  const { connectedPlatforms, connectPlatform, disconnectPlatform, startPolling, stopPolling } = useMusicStore();
+  const { connectedPlatforms, connectPlatform, disconnectPlatform, startPolling, stopPolling, syncNowPlaying } =
+    useMusicStore();
   const [loadingAuthUrl, setLoadingAuthUrl] = useState(false);
   const [debugCode, setDebugCode] = useState('');
   const [lastSpotifyState, setLastSpotifyState] = useState('');
@@ -21,10 +22,11 @@ export default function MusicConnectScreen() {
     setLoadingAuthUrl(true);
     try {
       const redirectUri = Linking.createURL('/music/callback/spotify');
-      const { data } = await musicApi.getSpotifyAuthUrl(redirectUri);
-      if (!data?.url) throw new Error('Missing auth url from backend.');
-      if (typeof data.state === 'string') setLastSpotifyState(data.state);
-      await Linking.openURL(data.url);
+      const resp = await musicApi.getSpotifyAuthUrl(redirectUri);
+      const payload = resp.data.data ?? resp.data;
+      if (!payload?.url) throw new Error('Missing auth url from backend.');
+      if (typeof payload.state === 'string') setLastSpotifyState(payload.state);
+      await Linking.openURL(payload.url);
     } catch (e: any) {
       Alert.alert('Spotify link unavailable', e?.response?.data?.error ?? e?.message ?? 'Unknown error');
     } finally {
@@ -35,9 +37,10 @@ export default function MusicConnectScreen() {
   const openAppleAuthLink = async () => {
     setLoadingAuthUrl(true);
     try {
-      const { data } = await musicApi.getAppleMusicAuthUrl();
-      if (!data?.url) throw new Error('Missing auth url from backend.');
-      await Linking.openURL(data.url);
+      const resp = await musicApi.getAppleMusicAuthUrl();
+      const payload = resp.data.data ?? resp.data;
+      if (!payload?.url) throw new Error('Missing auth url from backend.');
+      await Linking.openURL(payload.url);
     } catch (e: any) {
       Alert.alert('Apple link unavailable', e?.response?.data?.error ?? e?.message ?? 'Unknown error');
     } finally {
@@ -52,9 +55,11 @@ export default function MusicConnectScreen() {
         return Alert.alert('Missing state', 'Tap “Connect Spotify” first so the app stores OAuth state, then paste the code.');
       }
       await connectPlatform('spotify', debugCode.trim(), lastSpotifyState);
-      Alert.alert('Connected', 'Spotify connection saved.');
-      // Start syncing if we have a connection.
       startPolling();
+      await syncNowPlaying();
+      Alert.alert('Connected', 'Spotify connection saved.', [
+        { text: 'OK', onPress: () => router.replace('/(tabs)/profile') },
+      ]);
     } catch (e: any) {
       Alert.alert('Connect failed', e?.message ?? 'Unknown error');
     }
