@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { musicApi } from '@/services/api';
 import { MUSIC } from '@/constants';
 import type { MusicTrack, MusicPlatform } from '@/types';
+import * as Linking from 'expo-linking';
 
 interface MusicState {
   nowPlaying: MusicTrack | null;
@@ -54,7 +55,8 @@ export const useMusicStore = create<MusicState>((set) => ({
   connectPlatform: async (platform, token, oauthState) => {
     if (platform === 'spotify') {
       if (!oauthState) throw new Error('Missing OAuth state. Open Connect from the app after requesting the Spotify link.');
-      await musicApi.connectSpotify(token, oauthState);
+      const redirectUri = Linking.createURL('/music/callback/spotify');
+      await musicApi.connectSpotify(token, oauthState, redirectUri);
     }
     if (platform === 'apple_music') await musicApi.connectAppleMusic(token);
     if (platform === 'soundcloud')  await musicApi.connectSoundCloud(token);

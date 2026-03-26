@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, TextInput, Linking, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, TextInput, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
 import { useMusicStore } from '@/stores/musicStore';
 import { musicApi } from '@/services/api';
+import * as Linking from 'expo-linking';
 
 export default function MusicConnectScreen() {
   const { connectedPlatforms, connectPlatform, disconnectPlatform, startPolling, stopPolling } = useMusicStore();
@@ -19,7 +20,8 @@ export default function MusicConnectScreen() {
   const openSpotifyAuthLink = async () => {
     setLoadingAuthUrl(true);
     try {
-      const { data } = await musicApi.getSpotifyAuthUrl();
+      const redirectUri = Linking.createURL('/music/callback/spotify');
+      const { data } = await musicApi.getSpotifyAuthUrl(redirectUri);
       if (!data?.url) throw new Error('Missing auth url from backend.');
       if (typeof data.state === 'string') setLastSpotifyState(data.state);
       await Linking.openURL(data.url);

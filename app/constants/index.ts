@@ -107,6 +107,59 @@ export const POST = {
   GRID_COLUMNS: 2,
 };
 
+/**
+ * Band geometry + tuning for the feed play-zone overlay and autoplay hit-test
+ * (must match the fractions used in layout — tune here only).
+ * `listContentPaddingTop` must stay in sync with feed `listContent.paddingTop`.
+ */
+export const FEED_PLAY_ZONE = {
+  listContentPaddingTop: 8,
+  /** Used when `columnWidth` is not measured yet: `(windowWidth - inset) / 2` */
+  columnWidthFallbackInset: 24,
+  /** Same clamp as PostCard tile height (portrait estimate) */
+  maxTileHFactor: 6,
+  minTileHFactor: 0.52,
+  estPortraitAspect: 9 / 16,
+  halfBandOfFullMinPx: 8,
+  /** Vertical band height: half of full estimate, then two trims of this fraction */
+  heightTrimFraction: 1 / 5,
+  /** Shift overlay up by this fraction of “full” tile height */
+  offsetUpFraction: 1 / 5,
+  /** Down nudge (fraction of full height) after offset */
+  downNudgeFraction: 1 / 7,
+  /** Final up nudge (fraction of full height) */
+  upNudgeFraction: 1 / 20,
+  minBandHeightPx: 6,
+} as const;
+
+/** Pixel layout for the absolute play-zone overlay (and fallback hit-test vs listWrap). */
+export function computeFeedPlayZoneLayout(
+  columnWidth: number,
+  windowWidth: number,
+): { playZoneTop: number; playZoneHeight: number } {
+  const pz = FEED_PLAY_ZONE;
+  const w = columnWidth > 0 ? columnWidth : (windowWidth - pz.columnWidthFallbackInset) / 2;
+  const naturalH = w / pz.estPortraitAspect;
+  const full = Math.round(
+    Math.min(Math.max(naturalH, w * pz.minTileHFactor), w * pz.maxTileHFactor),
+  );
+  const trim = 1 - pz.heightTrimFraction;
+  const halfBand = Math.max(Math.round(full * 0.5), pz.halfBandOfFullMinPx);
+  const baseHeight = Math.max(Math.round(halfBand * trim * trim), pz.minBandHeightPx);
+  const offsetUp = Math.round(full * pz.offsetUpFraction);
+  const downNudge = Math.round(full * pz.downNudgeFraction);
+  const upNudge = Math.round(full * pz.upNudgeFraction);
+  const baseTopUnclamped = pz.listContentPaddingTop - offsetUp;
+  const topBefore = Math.max(0, baseTopUnclamped);
+  const topAfter = Math.max(0, baseTopUnclamped + downNudge);
+  const heightExtra = Math.max(0, downNudge - (topAfter - topBefore));
+  const totalHeight = baseHeight + heightExtra;
+  const topLifted = Math.max(0, topAfter - upNudge);
+  const topMovedBy = topAfter - topLifted;
+  const heightFinal = Math.max(pz.minBandHeightPx, totalHeight - (upNudge - topMovedBy));
+  return { playZoneTop: topLifted, playZoneHeight: heightFinal };
+}
+
 /** Pinterest-style feed masonry */
 export const FEED = {
   /** Pure black feed background */

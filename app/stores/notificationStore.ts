@@ -13,6 +13,18 @@ type NotificationStateSnapshot = {
   hasMore: boolean;
 };
 
+function dedupeById(items: Notification[]): Notification[] {
+  const seen = new Set<string>();
+  const out: Notification[] = [];
+  for (const n of items) {
+    const id = n?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(n);
+  }
+  return out;
+}
+
 async function persistForUser(userId: string, state: NotificationStateSnapshot) {
   await writeNotificationsCache(userId, {
     v: 1,
@@ -98,11 +110,12 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
       try {
         const { data } = await notificationsApi.getAll();
         const rows = Array.isArray(data?.data) ? data.data : [];
+        const deduped = dedupeById(rows);
         set({
-          notifications: rows,
+          notifications: deduped,
           cursor: data?.cursor ?? null,
           hasMore: data?.has_more ?? false,
-          unreadCount: rows.filter((n: Notification) => !n.is_read).length,
+          unreadCount: deduped.filter((n: Notification) => !n.is_read).length,
         });
         if (notificationsCacheOwnerId) await persistSnapshot();
       } catch {
@@ -119,11 +132,15 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
       try {
         const { data } = await notificationsApi.getAll(cursor ?? undefined);
         const next = Array.isArray(data?.data) ? data.data : [];
-        set((s) => ({
-          notifications: [...s.notifications, ...next],
-          cursor: data?.cursor ?? null,
-          hasMore: data?.has_more ?? false,
-        }));
+        set((s) => {
+          const merged = dedupeById([...s.notifications, ...next]);
+          return {
+            notifications: merged,
+            cursor: data?.cursor ?? null,
+            hasMore: data?.has_more ?? false,
+            unreadCount: merged.filter((n: Notification) => !n.is_read).length,
+          };
+        });
         await persistSnapshot();
       } catch {
         // leave hasMore as-is so user can retry scroll

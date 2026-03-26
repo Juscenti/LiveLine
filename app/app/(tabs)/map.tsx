@@ -25,6 +25,9 @@ export default function MapScreen() {
   const hasCenteredInitiallyRef = useRef(false);
   useEffect(() => {
     startTracking();
+    // Start fetching nearby friends immediately (not only when the user taps the tab),
+    // so switching to the map is instant.
+    void refreshNearby();
     return () => stopTracking();
     // Zustand store actions are stable references.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/unmount only

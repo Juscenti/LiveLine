@@ -195,11 +195,12 @@ export const mapApi = {
 };
 
 export const musicApi = {
-  connectSpotify: (code: string, state: string) =>
-    api.post('/music/connect/spotify', { code, state }),
+  connectSpotify: (code: string, state: string, redirectUri?: string) =>
+    api.post('/music/connect/spotify', { code, state, redirectUri }),
   connectAppleMusic: (token: string) => api.post('/music/connect/apple', { token }),
   connectSoundCloud: (code: string) => api.post('/music/connect/soundcloud', { code }),
-  getSpotifyAuthUrl: () => api.get('/music/connect/spotify/auth-url'),
+  getSpotifyAuthUrl: (redirectUri?: string) =>
+    api.get('/music/connect/spotify/auth-url', { params: { redirectUri } }),
   getAppleMusicAuthUrl: () => api.get('/music/connect/apple/auth-url'),
   disconnect: (platform: string) => api.delete(`/music/connect/${platform}`),
   getNowPlaying: (userId: string) => api.get(`/music/${userId}/now-playing`),

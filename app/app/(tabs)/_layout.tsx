@@ -246,6 +246,7 @@ export default function TabsLayout() {
           headerShown: false,
           tabBarShowLabel: false,
           tabBarHideOnKeyboard: true,
+          lazy: false,
         }}
       >
         <Tabs.Screen name="feed" options={{ tabBarIcon: () => null }} />

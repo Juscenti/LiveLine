@@ -447,6 +447,14 @@ export default function ProfileScreen() {
       .catch(() => setPosts([]));
   }, [user?.id]);
 
+  // Warm up profile-related data as soon as the tabs layout mounts (so switching tabs
+  // doesn't wait on network round-trips). UI will still show loaders if user is not ready.
+  useEffect(() => {
+    if (!user?.id) return;
+    void refreshUser();
+    void useFriendsInboxStore.getState().fetch({ withSpinner: false, silent: true });
+  }, [user?.id, refreshUser]);
+
   useFocusEffect(
     useCallback(() => {
       void refreshUser();

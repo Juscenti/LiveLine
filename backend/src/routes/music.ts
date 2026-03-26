@@ -8,16 +8,34 @@ import { issueSpotifyOAuthState } from '../services/oauthStateStore';
 
 const router = Router();
 
+function isAllowedSpotifyRedirectUri(uri: string): boolean {
+  // Allow app deep links + Expo dev-client URLs + (optional) hosted callback pages.
+  // This prevents arbitrary redirect_uri injection.
+  return (
+    uri.startsWith('liveline://') ||
+    uri.startsWith('exp://') ||
+    uri.startsWith('https://auth.expo.io/') ||
+    uri.startsWith('https://backend-production-d77b.up.railway.app/')
+  );
+}
+
 router.get('/connect/spotify/auth-url', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const clientId = process.env.SPOTIFY_CLIENT_ID;
-    const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
+    const redirectUriRaw =
+      (typeof req.query.redirectUri === 'string' ? req.query.redirectUri : null) ??
+      process.env.SPOTIFY_REDIRECT_URI ??
+      null;
 
-    if (!clientId || !redirectUri) {
+    if (!clientId || !redirectUriRaw) {
       return res.status(501).json({
         error: 'Spotify OAuth is not configured on the backend (set SPOTIFY_CLIENT_ID + SPOTIFY_REDIRECT_URI).',
         data: null,
       });
+    }
+
+    if (!isAllowedSpotifyRedirectUri(redirectUriRaw)) {
+      return res.status(400).json({ error: 'Invalid redirectUri.', data: null });
     }
 
     const state = issueSpotifyOAuthState(req.userId!);
@@ -27,7 +45,7 @@ router.get('/connect/spotify/auth-url', requireAuth, async (req: AuthRequest, re
     const params = new URLSearchParams();
     params.set('response_type', 'code');
     params.set('client_id', clientId);
-    params.set('redirect_uri', redirectUri);
+    params.set('redirect_uri', redirectUriRaw);
     params.set('scope', scope);
     params.set('state', state);
     // Request refresh token where supported.
@@ -60,11 +78,14 @@ router.get('/connect/apple/auth-url', requireAuth, async (req: AuthRequest, res:
 
 router.post('/connect/spotify', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { code, state } = req.body as { code?: string; state?: string };
+    const { code, state, redirectUri } = req.body as { code?: string; state?: string; redirectUri?: string };
     if (!code || !state) {
       return res.status(400).json({ error: 'code and state are required', data: null });
     }
-    await musicService.connectSpotify(req.userId!, code, state);
+    if (redirectUri && !isAllowedSpotifyRedirectUri(redirectUri)) {
+      return res.status(400).json({ error: 'Invalid redirectUri.', data: null });
+    }
+    await musicService.connectSpotify(req.userId!, code, state, redirectUri);
     return res.json({ data: { connected: true }, error: null });
   } catch (e: any) {
     return res.status(500).json({ error: e.message, data: null });

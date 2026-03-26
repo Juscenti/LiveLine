@@ -62,14 +62,14 @@ async function refreshSpotifyAccessToken(conn: any) {
 }
 
 export const musicService = {
-  async connectSpotify(userId: string, code: string, state: string) {
+  async connectSpotify(userId: string, code: string, state: string, redirectUriOverride?: string) {
     if (!consumeSpotifyOAuthState(state, userId)) {
       throw new Error('Invalid or expired OAuth state. Open the music link again from the app.');
     }
 
     const clientId = process.env.SPOTIFY_CLIENT_ID;
     const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-    const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
+    const redirectUri = redirectUriOverride ?? process.env.SPOTIFY_REDIRECT_URI;
 
     if (!clientId || !clientSecret || !redirectUri) {
       throw new Error('Spotify OAuth is not configured (SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI).');

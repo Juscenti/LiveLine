@@ -1,7 +1,7 @@
 // ============================================================
 // components/feed/PostCard.tsx — Masonry tile (Pinterest-style)
 // ============================================================
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, type Ref } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -27,12 +27,14 @@ interface Props {
   width: number;
   onPress: () => void;
   shouldPlay?: boolean;
+  /** Optional ref on the media tile only (for feed play-zone hit-testing). */
+  mediaMeasureRef?: Ref<View>;
 }
 
 const MAX_TILE_HEIGHT_FACTOR = 6;
 const MIN_TILE_HEIGHT_FACTOR = 0.52;
 
-export default function PostCard({ post, width, onPress, shouldPlay = false }: Props) {
+export default function PostCard({ post, width, onPress, shouldPlay = false, mediaMeasureRef }: Props) {
   const user = useAuthStore((s) => s.user);
   const deletePost = useFeedStore((s) => s.deletePost);
   const isOwner =
@@ -61,30 +63,41 @@ export default function PostCard({ post, width, onPress, shouldPlay = false }: P
     return () => { cancelled = true; };
   }, [thumbnailUri, showImage, post.id]);
 
-  // ── Video player (shared for dim-measurement + autoplay) ──────────────────
-  // Created for every video post. When shouldPlay=false and a thumbnail exists,
-  // the source is null so the player is a no-op.
-  // When shouldPlay=true OR there is no thumbnail (need metadata for tile height),
-  // the source is the media_url so the player can fire videoTrackChange.
+  // ── Video player (feed tile) ─────────────────────────────────────────────
+  // Always load the real file when we have a URL so the paused view shows the
+  // video's first frame (same pixels as playback) instead of swapping from a
+  // separate thumbnail image when autoplay kicks in.
   const isVideo = post.media_type === 'video';
   const videoSource = isVideo ? (post.media_url ?? null) : null;
-  // Only activate the player when we actually need it
-  const activeSource = isVideo && (shouldPlay || !showImage) ? videoSource : null;
 
-  const videoPlayer = useVideoPlayer(activeSource, (p) => {
+  const videoPlayer = useVideoPlayer(videoSource, (p) => {
     p.loop = true;
     p.muted = true;
   });
 
-  // When shouldPlay changes, drive play/pause imperatively
+  const [videoFrameReady, setVideoFrameReady] = useState(false);
   useEffect(() => {
-    if (!isVideo || !activeSource) return;
+    setVideoFrameReady(false);
+  }, [post.id, videoSource]);
+
+  const prevShouldPlayRef = useRef(false);
+  useEffect(() => {
+    prevShouldPlayRef.current = false;
+  }, [post.id]);
+
+  useEffect(() => {
+    if (!isVideo || !videoSource) return;
+    const wasPlaying = prevShouldPlayRef.current;
     if (shouldPlay) {
       videoPlayer.play();
     } else {
       videoPlayer.pause();
+      if (wasPlaying) {
+        videoPlayer.currentTime = 0;
+      }
     }
-  }, [shouldPlay, isVideo, activeSource, videoPlayer]);
+    prevShouldPlayRef.current = shouldPlay;
+  }, [shouldPlay, isVideo, videoSource, videoPlayer]);
 
   // Measure aspect from video track metadata — used as LAST RESORT fallback.
   // DB dims (below) take priority because they come from orientation-corrected values
@@ -148,15 +161,28 @@ export default function PostCard({ post, width, onPress, shouldPlay = false }: P
   return (
     <View style={[styles.card, { width }]}>
       <TouchableOpacity onPress={onPress} activeOpacity={0.92}>
-        <View style={[styles.media, { height: imageHeight, width, borderRadius: FEED.tileRadius }]}>
-          {/* Autoplay video — shown when shouldPlay is true and media_url is available */}
-          {shouldPlay && isVideo && post.media_url ? (
-            <VideoView
-              player={videoPlayer}
-              style={[styles.fill, { borderRadius: FEED.tileRadius }]}
-              contentFit="cover"
-              nativeControls={false}
-            />
+        <View ref={mediaMeasureRef} style={[styles.media, { height: imageHeight, width, borderRadius: FEED.tileRadius }]}>
+          {isVideo && post.media_url ? (
+            <>
+              <VideoView
+                player={videoPlayer}
+                style={[styles.fill, { borderRadius: FEED.tileRadius }]}
+                contentFit="cover"
+                nativeControls={false}
+                useExoShutter={false}
+                onFirstFrameRender={() => setVideoFrameReady(true)}
+              />
+              {showImage && !videoFrameReady ? (
+                <Image
+                  pointerEvents="none"
+                  source={{ uri: thumbnailUri, cacheKey: post.id }}
+                  style={[StyleSheet.absoluteFill, { borderRadius: FEED.tileRadius }]}
+                  contentFit="cover"
+                  transition={120}
+                  cachePolicy="memory-disk"
+                />
+              ) : null}
+            </>
           ) : showImage ? (
             <Image
               source={{ uri: thumbnailUri, cacheKey: post.id }}

@@ -117,6 +117,12 @@ export default function FriendsTabScreen() {
     void fetchFriendsInbox();
   }, [fetchFriendsInbox]);
 
+  // Preload the conversation list right away so switching to the Friends tab
+  // doesn't wait for network calls; the UI will show its loading state if needed.
+  useEffect(() => {
+    void loadConversations();
+  }, [loadConversations]);
+
   useFocusEffect(
     useCallback(() => {
       void loadConversations();
