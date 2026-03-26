@@ -130,6 +130,14 @@ async function fetchRecentFromSpotify(accessToken: string): Promise<NormalizedSp
   return mapSpotifyTrackItem(item);
 }
 
+async function getCurrentPlayingFromSpotify(accessToken: string) {
+  return axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    timeout: 20000,
+    validateStatus: () => true,
+  });
+}
+
 async function refreshSpotifyAccessToken(conn: any) {
   if (!conn?.refresh_token) throw new Error('Missing Spotify refresh token.');
   const clientId = process.env.SPOTIFY_CLIENT_ID;
@@ -273,16 +281,22 @@ export const musicService = {
     let accessToken = conn.access_token as string;
 
     // Refresh if needed.
-    if (expiresAtMs && expiresAtMs - now < 60_000) {
+    if ((!expiresAtMs || expiresAtMs - now < 60_000) && conn.refresh_token) {
       const refreshed = await refreshSpotifyAccessToken(conn);
       accessToken = refreshed.accessToken;
     }
 
-    const cur = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      timeout: 20000,
-      validateStatus: () => true,
-    });
+    let cur = await getCurrentPlayingFromSpotify(accessToken);
+
+    if ((cur.status === 401 || cur.status === 403) && conn.refresh_token) {
+      try {
+        const refreshed = await refreshSpotifyAccessToken(conn);
+        accessToken = refreshed.accessToken;
+        cur = await getCurrentPlayingFromSpotify(accessToken);
+      } catch (refreshErr) {
+        console.warn('Spotify access token refresh failed while syncing now playing', refreshErr);
+      }
+    }
 
     if (cur.status === 200 && cur.data?.item) {
       const isPlaying = cur.data?.is_playing === true;
@@ -294,14 +308,7 @@ export const musicService = {
       return await persistRecentTrack(userId, m);
     }
 
-    if (cur.status === 204) {
-      await clearUserNowPlayingFlags(userId);
-      const m = await fetchRecentFromSpotify(accessToken);
-      if (!m) return null;
-      return await persistRecentTrack(userId, m);
-    }
-
-    if (cur.status === 200 && !cur.data?.item) {
+    if (cur.status === 204 || (cur.status === 200 && !cur.data?.item)) {
       await clearUserNowPlayingFlags(userId);
       const m = await fetchRecentFromSpotify(accessToken);
       if (!m) return null;
