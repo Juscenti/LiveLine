@@ -179,9 +179,6 @@ async function refreshSpotifyAccessToken(conn: any) {
 
 export const musicService = {
   async connectSpotify(userId: string, code: string, state: string, redirectUriOverride?: string) {
-  console.log('[connectSpotify] code:', code?.slice(0, 10));
-  console.log('[connectSpotify] redirectUri used:', redirectUriOverride ?? process.env.SPOTIFY_REDIRECT_URI);
-  console.log('[connectSpotify] state:', state?.slice(0, 10));
 
     const clientId = process.env.SPOTIFY_CLIENT_ID;
     const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
@@ -214,6 +211,12 @@ export const musicService = {
         (typeof errBody?.error_description === 'string' && errBody.error_description) ||
         (typeof errBody?.error === 'string' && errBody.error) ||
         '';
+
+      // Don't consume state for authorization code errors - user can retry
+      if (errBody?.error === 'invalid_grant') {
+        throw new Error('Authorization code expired. Please try connecting to Spotify again.');
+      }
+
       throw new Error(
         detail || `Spotify token exchange failed (${tokenResp.status}). Check redirect URI matches Spotify app settings.`,
       );
@@ -226,15 +229,16 @@ export const musicService = {
     const meResp = await axios.get('https://api.spotify.com/v1/me', {
       headers: { Authorization: `Bearer ${token.access_token}` },
       timeout: 20000,
+      validateStatus: () => true, // Don't throw on HTTP errors
     });
+
+    if (meResp.status !== 200) {
+      // Don't consume state for /me endpoint errors - token might be invalid
+      throw new Error(`Failed to get Spotify user info (${meResp.status}). Please try connecting again.`);
+    }
 
     const platformUserId = meResp.data?.id as string | undefined;
     if (!platformUserId) throw new Error('Spotify /me did not return an id.');
-
-    // Validate and consume OAuth state only after all external API calls succeed
-    if (!consumeSpotifyOAuthState(state, userId)) {
-      throw new Error('Invalid or expired OAuth state. Open the music link again from the app.');
-    }
 
     // Store connection + refresh token for future sync.
     const { error } = await supabaseAdmin.from('music_connections').upsert(
@@ -251,6 +255,11 @@ export const musicService = {
     );
 
     if (error) throw error;
+
+    // Validate and consume OAuth state only after ALL operations succeed
+    if (!consumeSpotifyOAuthState(state, userId)) {
+      throw new Error('Invalid or expired OAuth state. Open the music link again from the app.');
+    }
   },
 
   async connectAppleMusic(userId: string, token: string) {
