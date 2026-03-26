@@ -287,8 +287,13 @@ export const musicService = {
   },
 
   async syncNowPlaying(userId: string) {
+    console.log('[sync] userId:', userId);
     const conn = await getSpotifyConnection(userId);
-    if (!conn) return null;
+    if (!conn) {
+      console.log('[sync] no connection found');
+      return null;
+    }
+    console.log('[sync] connection found, access_token exists:', !!conn.access_token);
 
     const now = Date.now();
     const expiresAtMs = conn.token_expires_at ? new Date(conn.token_expires_at).getTime() : 0;
@@ -301,12 +306,15 @@ export const musicService = {
     }
 
     let cur = await getCurrentPlayingFromSpotify(accessToken);
+    console.log('[sync] currently-playing status:', cur.status);
 
     if ((cur.status === 401 || cur.status === 403) && conn.refresh_token) {
+      console.log('[sync] attempting token refresh');
       try {
         const refreshed = await refreshSpotifyAccessToken(conn);
         accessToken = refreshed.accessToken;
         cur = await getCurrentPlayingFromSpotify(accessToken);
+        console.log('[sync] after refresh, currently-playing status:', cur.status);
       } catch (refreshErr) {
         console.warn('Spotify access token refresh failed while syncing now playing', refreshErr);
       }
@@ -316,25 +324,37 @@ export const musicService = {
       const isPlaying = cur.data?.is_playing === true;
       const m = mapSpotifyTrackItem(cur.data.item);
       if (isPlaying) {
-        return await insertPlayingRow(userId, m);
+        const result = await insertPlayingRow(userId, m);
+        console.log('[sync] result: now playing track saved');
+        return result;
       }
       await clearUserNowPlayingFlags(userId);
-      return await persistRecentTrack(userId, m);
+      const result = await persistRecentTrack(userId, m);
+      console.log('[sync] result: recent track saved');
+      return result;
     }
 
     if (cur.status === 204 || (cur.status === 200 && !cur.data?.item)) {
       await clearUserNowPlayingFlags(userId);
       const m = await fetchRecentFromSpotify(accessToken);
-      if (!m) return null;
-      return await persistRecentTrack(userId, m);
+      if (!m) {
+        console.log('[sync] result: null (no recent tracks)');
+        return null;
+      }
+      const result = await persistRecentTrack(userId, m);
+      console.log('[sync] result: recent track saved');
+      return result;
     }
 
     if (cur.status === 401 || cur.status === 403 || cur.status === 404 || cur.status === 429) {
       const m = await fetchRecentFromSpotify(accessToken);
       if (m) {
         await clearUserNowPlayingFlags(userId);
-        return await persistRecentTrack(userId, m);
+        const result = await persistRecentTrack(userId, m);
+        console.log('[sync] result: fallback recent track saved');
+        return result;
       }
+      console.log('[sync] result: null (fallback failed)');
       return null;
     }
 
@@ -342,8 +362,13 @@ export const musicService = {
 
     await clearUserNowPlayingFlags(userId);
     const fallback = await fetchRecentFromSpotify(accessToken);
-    if (!fallback) return null;
-    return await persistRecentTrack(userId, fallback);
+    if (!fallback) {
+      console.log('[sync] result: null');
+      return null;
+    }
+    const result = await persistRecentTrack(userId, fallback);
+    console.log('[sync] result:', result ? 'track saved' : 'null');
+    return result;
   },
 };
 
