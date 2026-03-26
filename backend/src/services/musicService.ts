@@ -179,10 +179,11 @@ async function refreshSpotifyAccessToken(conn: any) {
 
 export const musicService = {
   async connectSpotify(userId: string, code: string, state: string, redirectUriOverride?: string) {
-
     const clientId = process.env.SPOTIFY_CLIENT_ID;
     const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
     const redirectUri = redirectUriOverride ?? process.env.SPOTIFY_REDIRECT_URI;
+    console.log('[connectSpotify] redirectUri:', redirectUri);
+    console.log('[connectSpotify] code:', code?.slice(0, 15) + '...');
 
     if (!clientId || !clientSecret || !redirectUri) {
       throw new Error('Spotify OAuth is not configured (SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI).');
@@ -204,6 +205,12 @@ export const musicService = {
       timeout: 20000,
       validateStatus: () => true,
     });
+    console.log('[connectSpotify] token exchange status:', tokenResp.status);
+    if (tokenResp.status !== 200) {
+      console.log('[connectSpotify] token error:', tokenResp.data?.error, tokenResp.data?.error_description);
+    } else {
+      console.log('[connectSpotify] token exchange success, has refresh_token:', !!tokenResp.data?.refresh_token);
+    }
 
     if (tokenResp.status >= 400) {
       const errBody = tokenResp.data as { error?: string; error_description?: string } | undefined;
@@ -229,8 +236,12 @@ export const musicService = {
     const meResp = await axios.get('https://api.spotify.com/v1/me', {
       headers: { Authorization: `Bearer ${token.access_token}` },
       timeout: 20000,
-      validateStatus: () => true, // Don't throw on HTTP errors
+      validateStatus: () => true,
     });
+    console.log('[connectSpotify] /me status:', meResp.status);
+    if (meResp.status !== 200) {
+      console.log('[connectSpotify] /me error:', meResp.data);
+    }
 
     if (meResp.status !== 200) {
       // Don't consume state for /me endpoint errors - token might be invalid
