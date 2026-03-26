@@ -52,8 +52,14 @@ router.get('/connect/spotify/auth-url', requireAuth, async (req: AuthRequest, re
     }
 
     const state = issueSpotifyOAuthState(req.userId!);
-    // Needed for "currently playing" sync.
-    const scope = ['user-read-email', 'user-read-private', 'user-read-playback-state', 'user-top-read'].join(' ');
+    // user-read-currently-playing is required for GET /me/player/currently-playing (playback-state alone yields 403).
+    const scope = [
+      'user-read-email',
+      'user-read-private',
+      'user-read-playback-state',
+      'user-read-currently-playing',
+      'user-top-read',
+    ].join(' ');
 
     const params = new URLSearchParams();
     params.set('response_type', 'code');
