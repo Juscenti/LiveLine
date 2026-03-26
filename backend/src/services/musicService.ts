@@ -30,6 +30,106 @@ async function clearUserNowPlayingFlags(userId: string) {
     .eq('is_currently_playing', true);
 }
 
+type NormalizedSpotifyTrack = {
+  song: string;
+  artist: string;
+  album: string | null;
+  cover_url: string | null;
+  platform_track_id: string | null;
+  duration_ms: number | null;
+};
+
+function mapSpotifyTrackItem(item: any): NormalizedSpotifyTrack {
+  const song = (typeof item?.name === 'string' ? item.name : '') || 'Unknown track';
+  const artists = Array.isArray(item?.artists) ? item.artists : [];
+  const artist = (artists[0]?.name as string) ?? 'Unknown';
+  const album = (item?.album?.name as string) ?? null;
+  const cover_url = (item?.album?.images?.[0]?.url as string) ?? null;
+  const platform_track_id = (item?.id as string) ?? null;
+  const duration_ms = (item?.duration_ms as number) ?? null;
+  return { song, artist, album, cover_url, platform_track_id, duration_ms };
+}
+
+async function insertPlayingRow(userId: string, m: NormalizedSpotifyTrack) {
+  const insert = await supabaseAdmin
+    .from('music_activity')
+    .insert({
+      user_id: userId,
+      song: m.song,
+      artist: m.artist,
+      album: m.album,
+      cover_url: m.cover_url,
+      platform_track_id: m.platform_track_id,
+      track_url: null,
+      duration_ms: m.duration_ms,
+      source: 'spotify',
+      is_currently_playing: true,
+    })
+    .select('*')
+    .single();
+
+  if (insert.error) throw insert.error;
+  return insert.data;
+}
+
+/** Last-listen row: update timestamp if same track to avoid sync spam */
+async function persistRecentTrack(userId: string, m: NormalizedSpotifyTrack) {
+  if (m.platform_track_id) {
+    const { data: latest } = await supabaseAdmin
+      .from('music_activity')
+      .select('id, platform_track_id')
+      .eq('user_id', userId)
+      .eq('is_currently_playing', false)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latest?.platform_track_id === m.platform_track_id) {
+      const u = await supabaseAdmin
+        .from('music_activity')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', latest.id)
+        .select('*')
+        .single();
+      if (!u.error && u.data) return u.data;
+    }
+  }
+
+  const insert = await supabaseAdmin
+    .from('music_activity')
+    .insert({
+      user_id: userId,
+      song: m.song,
+      artist: m.artist,
+      album: m.album,
+      cover_url: m.cover_url,
+      platform_track_id: m.platform_track_id,
+      track_url: null,
+      duration_ms: m.duration_ms,
+      source: 'spotify',
+      is_currently_playing: false,
+    })
+    .select('*')
+    .single();
+
+  if (insert.error) throw insert.error;
+  return insert.data;
+}
+
+async function fetchRecentFromSpotify(accessToken: string): Promise<NormalizedSpotifyTrack | null> {
+  const rec = await axios.get('https://api.spotify.com/v1/me/player/recently-played', {
+    params: { limit: 1 },
+    headers: { Authorization: `Bearer ${accessToken}` },
+    timeout: 20000,
+    validateStatus: () => true,
+  });
+
+  if (rec.status !== 200 || !rec.data?.items?.length) return null;
+  const item = rec.data.items[0]?.track;
+  if (!item) return null;
+  return mapSpotifyTrackItem(item);
+}
+
 async function refreshSpotifyAccessToken(conn: any) {
   if (!conn?.refresh_token) throw new Error('Missing Spotify refresh token.');
   const clientId = process.env.SPOTIFY_CLIENT_ID;
@@ -178,56 +278,51 @@ export const musicService = {
       accessToken = refreshed.accessToken;
     }
 
-    const resp = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
+    const cur = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { Authorization: `Bearer ${accessToken}` },
       timeout: 20000,
       validateStatus: () => true,
     });
 
-    // 204 = nothing playing. 401/403/404 often = free-tier / no playback scope / no active device — don't 500 the app.
-    if (resp.status === 204) {
+    if (cur.status === 200 && cur.data?.item) {
+      const isPlaying = cur.data?.is_playing === true;
+      const m = mapSpotifyTrackItem(cur.data.item);
+      if (isPlaying) {
+        return await insertPlayingRow(userId, m);
+      }
       await clearUserNowPlayingFlags(userId);
-      return null;
-    }
-    if (resp.status === 401 || resp.status === 403 || resp.status === 404 || resp.status === 429) {
-      await clearUserNowPlayingFlags(userId);
-      return null;
-    }
-    if (resp.status >= 400) throw new Error(`Spotify currently-playing failed (${resp.status}).`);
-
-    const item = resp.data?.item;
-    if (!item) {
-      await clearUserNowPlayingFlags(userId);
-      return null;
+      return await persistRecentTrack(userId, m);
     }
 
-    const song = item?.name;
-    const artists = Array.isArray(item?.artists) ? item.artists : [];
-    const artist = artists[0]?.name ?? 'Unknown';
-    const album = item?.album?.name ?? null;
-    const cover_url = item?.album?.images?.[0]?.url ?? null;
-    const platform_track_id = item?.id ?? null;
-    const duration_ms = item?.duration_ms ?? null;
+    if (cur.status === 204) {
+      await clearUserNowPlayingFlags(userId);
+      const m = await fetchRecentFromSpotify(accessToken);
+      if (!m) return null;
+      return await persistRecentTrack(userId, m);
+    }
 
-    const insert = await supabaseAdmin
-      .from('music_activity')
-      .insert({
-        user_id: userId,
-        song,
-        artist,
-        album,
-        cover_url,
-        source: 'spotify',
-        platform_track_id,
-        track_url: null,
-        duration_ms,
-        is_currently_playing: true,
-      })
-      .select('*')
-      .single();
+    if (cur.status === 200 && !cur.data?.item) {
+      await clearUserNowPlayingFlags(userId);
+      const m = await fetchRecentFromSpotify(accessToken);
+      if (!m) return null;
+      return await persistRecentTrack(userId, m);
+    }
 
-    if (insert.error) throw insert.error;
-    return insert.data;
+    if (cur.status === 401 || cur.status === 403 || cur.status === 404 || cur.status === 429) {
+      const m = await fetchRecentFromSpotify(accessToken);
+      if (m) {
+        await clearUserNowPlayingFlags(userId);
+        return await persistRecentTrack(userId, m);
+      }
+      return null;
+    }
+
+    if (cur.status >= 400) throw new Error(`Spotify currently-playing failed (${cur.status}).`);
+
+    await clearUserNowPlayingFlags(userId);
+    const fallback = await fetchRecentFromSpotify(accessToken);
+    if (!fallback) return null;
+    return await persistRecentTrack(userId, fallback);
   },
 };
 

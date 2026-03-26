@@ -18,9 +18,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usersApi, postsApi, friendsApi, musicApi } from '@/services/api';
 import { getOrCreateDirectConversation } from '@/services/conversations';
 import { useAuthStore } from '@/stores/authStore';
+import { useMusicStore } from '@/stores/musicStore';
 import { COLORS, SPACING, FONTS, FEED } from '@/constants';
 import PostThumb from '@/components/feed/PostThumb';
-import MusicBadge from '@/components/music/MusicBadge';
+import ProfileMusicSection from '@/components/music/ProfileMusicSection';
 import { AppHeader, PillButton, UserAvatar, UserNameBlock } from '@/components/shared';
 import { formatApiError } from '@/utils/apiErrors';
 import type { User, Post, MusicTrack } from '@/types';
@@ -36,6 +37,7 @@ type RelStatus =
 export default function PublicProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user: me } = useAuthStore();
+  const { nowPlaying: myNowPlaying, connectedPlatforms } = useMusicStore();
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   const [profile, setProfile] = useState<User | null>(null);
@@ -166,6 +168,10 @@ export default function PublicProfileScreen() {
 
   if (!profile) return null;
 
+  const displayTrack = isMe ? myNowPlaying : theirMusic;
+  const spotifyConnectedForCard = isMe ? connectedPlatforms.includes('spotify') : !!theirMusic;
+  const showMusicCard = isMe || !!(theirMusic?.song && theirMusic?.source);
+
   const profileCols = 3;
   const profileGutter = 6;
   const profilePadH = SPACING.base * 2;
@@ -242,9 +248,21 @@ export default function PublicProfileScreen() {
           {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
         </View>
 
-        {theirMusic?.song && theirMusic?.source ? (
+        {showMusicCard ? (
           <View style={styles.musicWrap}>
-            <MusicBadge track={theirMusic} />
+            <ProfileMusicSection
+              track={displayTrack}
+              spotifyConnected={spotifyConnectedForCard}
+              isSelf={isMe}
+              onPressConnect={isMe ? () => router.push('/music/connect') : undefined}
+              friendCanInteract={!isMe && rel.status === 'accepted'}
+              onFriendInteract={() => {
+                Alert.alert('Send some love', 'Open chat to hype their taste?', [
+                  { text: 'Not now', style: 'cancel' },
+                  { text: 'Message', onPress: () => void openChat() },
+                ]);
+              }}
+            />
           </View>
         ) : null}
 

@@ -16,7 +16,7 @@ import { useMusicStore } from '@/stores/musicStore';
 import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 import { postsApi } from '@/services/api';
 import { COLORS, SPACING, FONTS, RADIUS, TAB_BAR, FEED } from '@/constants';
-import MusicBadge from '@/components/music/MusicBadge';
+import ProfileMusicSection from '@/components/music/ProfileMusicSection';
 import PostThumb from '@/components/feed/PostThumb';
 import type { Post } from '@/types';
 
@@ -52,12 +52,14 @@ function ProfileHeader({
   user,
   posts,
   nowPlaying,
+  spotifyConnected,
   friendsCount,
   totalLikes,
 }: {
   user: any;
   posts: Post[];
   nowPlaying: any;
+  spotifyConnected: boolean;
   friendsCount: number;
   totalLikes: number;
 }) {
@@ -111,6 +113,13 @@ function ProfileHeader({
           <Text style={headerStyles.bio}>{user.bio}</Text>
         ) : null}
 
+        <ProfileMusicSection
+          track={nowPlaying}
+          spotifyConnected={spotifyConnected}
+          isSelf
+          onPressConnect={() => router.push('/music/connect')}
+        />
+
         <View style={headerStyles.actions}>
           <Pressable
             style={({ pressed }) => [headerStyles.editBtn, pressed && { opacity: 0.75 }]}
@@ -144,13 +153,6 @@ function ProfileHeader({
         <View style={headerStyles.statDivider} />
         <StatPill value={totalLikes} label="Likes" />
       </View>
-
-      {/* Now playing */}
-      {nowPlaying?.song && nowPlaying?.source ? (
-        <View style={headerStyles.musicWrap}>
-          <MusicBadge track={nowPlaying} />
-        </View>
-      ) : null}
     </Animated.View>
   );
 }
@@ -265,10 +267,6 @@ const headerStyles = StyleSheet.create({
     width: StyleSheet.hairlineWidth,
     height: 28,
     backgroundColor: COLORS.border,
-  },
-  musicWrap: {
-    marginHorizontal: SPACING.base,
-    marginTop: SPACING.md,
   },
 });
 
@@ -431,7 +429,8 @@ export default function ProfileScreen() {
   const user = useAuthStore((s) => s.user);
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const friendsCount = useFriendsInboxStore((s) => s.friends.length);
-  const { nowPlaying, syncNowPlaying } = useMusicStore();
+  const { nowPlaying, syncNowPlaying, connectedPlatforms } = useMusicStore();
+  const spotifyConnected = useMemo(() => connectedPlatforms.includes('spotify'), [connectedPlatforms]);
   const [posts, setPosts] = useState<Post[]>([]);
 
   const totalLikes = useMemo(
@@ -485,6 +484,7 @@ export default function ProfileScreen() {
         user={user}
         posts={posts}
         nowPlaying={nowPlaying}
+        spotifyConnected={spotifyConnected}
         friendsCount={friendsCount}
         totalLikes={totalLikes}
       />

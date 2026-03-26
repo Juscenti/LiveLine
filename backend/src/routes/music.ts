@@ -58,6 +58,7 @@ router.get('/connect/spotify/auth-url', requireAuth, async (req: AuthRequest, re
       'user-read-private',
       'user-read-playback-state',
       'user-read-currently-playing',
+      'user-read-recently-played',
       'user-top-read',
     ].join(' ');
 
