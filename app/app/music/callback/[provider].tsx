@@ -16,7 +16,7 @@ export default function MusicCallbackScreen() {
   const hasRun = useRef(false); // ADD THIS
 
   useEffect(() => {
-    if (!provider) return;
+    if (!provider || !code) return;
     if (hasRun.current) return; // ADD THIS
     hasRun.current = true;      // ADD THIS
 

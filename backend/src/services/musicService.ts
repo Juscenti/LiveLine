@@ -182,9 +182,6 @@ export const musicService = {
   console.log('[connectSpotify] code:', code?.slice(0, 10));
   console.log('[connectSpotify] redirectUri used:', redirectUriOverride ?? process.env.SPOTIFY_REDIRECT_URI);
   console.log('[connectSpotify] state:', state?.slice(0, 10));
-    if (!consumeSpotifyOAuthState(state, userId)) {
-      throw new Error('Invalid or expired OAuth state. Open the music link again from the app.');
-    }
 
     const clientId = process.env.SPOTIFY_CLIENT_ID;
     const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
@@ -233,6 +230,11 @@ export const musicService = {
 
     const platformUserId = meResp.data?.id as string | undefined;
     if (!platformUserId) throw new Error('Spotify /me did not return an id.');
+
+    // Validate and consume OAuth state only after all external API calls succeed
+    if (!consumeSpotifyOAuthState(state, userId)) {
+      throw new Error('Invalid or expired OAuth state. Open the music link again from the app.');
+    }
 
     // Store connection + refresh token for future sync.
     const { error } = await supabaseAdmin.from('music_connections').upsert(

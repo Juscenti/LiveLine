@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 
-const TTL_MS = 10 * 60 * 1000;
+const TTL_MS = 60 * 60 * 1000; // 1 hour - increased from 10 minutes
 const store = new Map<string, { userId: string; exp: number }>();
 
 function prune() {
