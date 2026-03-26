@@ -37,8 +37,8 @@ export const useMusicStore = create<MusicState>((set) => ({
       const res = await musicApi.syncNowPlaying();
       const body = res.data as { data?: MusicTrack | null };
       set({ nowPlaying: body?.data ?? null });
-    } catch {
-      // No connected platform or not playing
+    } catch (e) {
+      console.error('[syncNowPlaying] failed:', e);
     } finally {
       set({ isSyncing: false });
     }
