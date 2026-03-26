@@ -12,6 +12,8 @@ type Props = {
   track: MusicTrack | null;
   spotifyConnected: boolean;
   isSelf: boolean;
+  /** Someone else’s profile — never show “Connect Spotify”, use friend-empty copy */
+  viewingOthersProfile?: boolean;
   onPressConnect?: () => void;
   /** When a friend views an accepted profile — quick emoji nudge opens chat via callback */
   friendCanInteract?: boolean;
@@ -24,11 +26,24 @@ export default function ProfileMusicSection({
   track,
   spotifyConnected,
   isSelf,
+  viewingOthersProfile = false,
   onPressConnect,
   friendCanInteract,
   onFriendInteract,
 }: Props) {
   const showTrack = !!(track?.song && track?.source);
+
+  const subtitle = showTrack
+    ? track!.is_currently_playing
+      ? 'Playing right now'
+      : isSelf
+        ? 'Last played on Spotify'
+        : 'Last thing they played'
+    : viewingOthersProfile
+      ? 'No Spotify activity here yet — they may need to connect Liveline or play something.'
+      : spotifyConnected
+        ? 'Nothing on the deck — play a song in Spotify'
+        : 'Link Spotify so people see your vibe';
 
   return (
     <View style={styles.section}>
@@ -43,21 +58,11 @@ export default function ProfileMusicSection({
         </LinearGradient>
         <View style={styles.headerText}>
           <Text style={styles.sectionTitle}>On Spotify</Text>
-          <Text style={styles.sectionSub}>
-            {showTrack
-              ? track!.is_currently_playing
-                ? 'Playing right now'
-                : isSelf
-                  ? 'Last played on Spotify'
-                  : 'Last thing they played'
-              : spotifyConnected
-                ? 'Nothing on the deck — play a song in Spotify'
-                : 'Link Spotify so people see your vibe'}
-          </Text>
+          <Text style={styles.sectionSub}>{subtitle}</Text>
         </View>
       </View>
 
-      {!spotifyConnected && onPressConnect ? (
+      {!viewingOthersProfile && !spotifyConnected && onPressConnect ? (
         <Pressable
           onPress={onPressConnect}
           style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.85 }]}
@@ -67,7 +72,7 @@ export default function ProfileMusicSection({
         </Pressable>
       ) : null}
 
-      {spotifyConnected && showTrack ? (
+      {showTrack ? (
         <View style={styles.badgeWrap}>
           <MusicBadge track={track!} />
         </View>

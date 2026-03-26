@@ -2,6 +2,7 @@
 // app/profile/[id].tsx — Public user profile
 // ============================================================
 import { useEffect, useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -26,6 +27,19 @@ import { AppHeader, PillButton, UserAvatar, UserNameBlock } from '@/components/s
 import { formatApiError } from '@/utils/apiErrors';
 import type { User, Post, MusicTrack } from '@/types';
 
+function parseNowPlayingPayload(res: { data: unknown }): MusicTrack | null {
+  const body = res.data as { data?: MusicTrack | null } | MusicTrack | null | undefined;
+  if (!body || typeof body !== 'object') return null;
+  if ('data' in body && body.data !== undefined) {
+    const inner = body.data as MusicTrack | null;
+    if (inner && typeof inner === 'object' && inner.song && inner.source) return inner;
+    return null;
+  }
+  const row = body as MusicTrack;
+  if (row?.song && row?.source) return row;
+  return null;
+}
+
 type RelStatus =
   | 'none'
   | 'accepted'
@@ -35,7 +49,8 @@ type RelStatus =
   | 'blocked';
 
 export default function PublicProfileScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string | string[] }>();
+  const id = typeof params.id === 'string' ? params.id : params.id?.[0] ?? '';
   const { user: me } = useAuthStore();
   const { nowPlaying: myNowPlaying, connectedPlatforms } = useMusicStore();
   const insets = useSafeAreaInsets();
@@ -85,17 +100,22 @@ export default function PublicProfileScreen() {
     void loadRelationship();
   }, [loadRelationship]);
 
-  useEffect(() => {
+  const fetchTheirMusic = useCallback(() => {
     if (!id) return;
     musicApi
       .getNowPlaying(id)
       .then((r) => {
-        const row = (r.data as { data?: MusicTrack | null })?.data ?? null;
-        if (row?.song && row?.source) setTheirMusic(row);
-        else setTheirMusic(null);
+        setTheirMusic(parseNowPlayingPayload(r));
       })
       .catch(() => setTheirMusic(null));
   }, [id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadRelationship();
+      fetchTheirMusic();
+    }, [loadRelationship, fetchTheirMusic]),
+  );
 
   const openChat = async () => {
     if (!id) return;
@@ -166,11 +186,15 @@ export default function PublicProfileScreen() {
     );
   }
 
-  if (!profile) return null;
+  if (!profile || !id) return null;
 
   const displayTrack = isMe ? myNowPlaying : theirMusic;
-  const spotifyConnectedForCard = isMe ? connectedPlatforms.includes('spotify') : !!theirMusic;
-  const showMusicCard = isMe || !!(theirMusic?.song && theirMusic?.source);
+  const spotifyConnectedForCard = isMe
+    ? connectedPlatforms.includes('spotify')
+    : !!(theirMusic?.song && theirMusic?.source);
+  const isAcceptedFriend = !isMe && rel.status === 'accepted';
+  /** Same music strip as tab profile: always show (blocked users rarely reach here). */
+  const showMusicCard = rel.status !== 'blocked';
 
   const profileCols = 3;
   const profileGutter = 6;
@@ -246,16 +270,15 @@ export default function PublicProfileScreen() {
         <View style={styles.info}>
           <UserNameBlock user={profile} variant="profile" />
           {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
-        </View>
 
-        {showMusicCard ? (
-          <View style={styles.musicWrap}>
+          {showMusicCard ? (
             <ProfileMusicSection
               track={displayTrack}
               spotifyConnected={spotifyConnectedForCard}
               isSelf={isMe}
+              viewingOthersProfile={!isMe}
               onPressConnect={isMe ? () => router.push('/music/connect') : undefined}
-              friendCanInteract={!isMe && rel.status === 'accepted'}
+              friendCanInteract={isAcceptedFriend}
               onFriendInteract={() => {
                 Alert.alert('Send some love', 'Open chat to hype their taste?', [
                   { text: 'Not now', style: 'cancel' },
@@ -263,8 +286,8 @@ export default function PublicProfileScreen() {
                 ]);
               }}
             />
-          </View>
-        ) : null}
+          ) : null}
+        </View>
 
         <View style={[styles.grid, { gap: profileGutter }]}>
           {posts.map((post) => (
@@ -305,10 +328,6 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     marginTop: SPACING.sm,
     lineHeight: 20,
-  },
-  musicWrap: {
-    paddingHorizontal: SPACING.base,
-    marginTop: SPACING.md,
   },
   grid: {
     flexDirection: 'row',
