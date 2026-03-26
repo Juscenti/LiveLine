@@ -1,8 +1,11 @@
 import { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useMusicStore } from '@/stores/musicStore';
 import type { MusicPlatform } from '@/types';
+
+const SPOTIFY_CALLBACK_CODE_KEY = 'spotify-oauth-callback-code';
 
 export default function MusicCallbackScreen() {
   const { provider, code, token, state } = useLocalSearchParams<{
@@ -16,14 +19,28 @@ export default function MusicCallbackScreen() {
   const hasRun = useRef(false); // ADD THIS
 
   useEffect(() => {
-    if (!provider || !code) return;
-    if (hasRun.current) return; // ADD THIS
-    hasRun.current = true;      // ADD THIS
+    if (!provider || !code) {
+      return;
+    }
+
+    if (hasRun.current) return;
+    hasRun.current = true;
 
     const run = async () => {
+      let platform: MusicPlatform | null = null;
+
       try {
+        if (provider.toLowerCase() === 'spotify') {
+          const previousCode = await AsyncStorage.getItem(SPOTIFY_CALLBACK_CODE_KEY);
+          if (previousCode === code) {
+            // Prevent reusing the same authorization code after app reload
+            router.replace('/(tabs)/profile');
+            return;
+          }
+        }
+
         const p = provider.toLowerCase();
-        const platform: MusicPlatform =
+        platform =
           p === 'spotify' ? 'spotify' :
           p === 'apple' || p === 'apple_music' ? 'apple_music' :
           p === 'soundcloud' ? 'soundcloud' :
@@ -43,9 +60,19 @@ export default function MusicCallbackScreen() {
         startPolling();
         await syncNowPlaying();
         setStatus('done');
+
+        if (platform === 'spotify' && code) {
+          await AsyncStorage.setItem(SPOTIFY_CALLBACK_CODE_KEY, code);
+        }
+
         router.replace('/(tabs)/profile');
       } catch (e: any) {
         Alert.alert('Music connect failed', e?.message ?? 'Unknown error');
+
+        if (platform === 'spotify' && code) {
+          await AsyncStorage.setItem(SPOTIFY_CALLBACK_CODE_KEY, code);
+        }
+
         router.replace('/(tabs)/profile');
       }
     };
