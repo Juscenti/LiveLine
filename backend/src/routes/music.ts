@@ -99,8 +99,6 @@ router.get('/connect/apple/auth-url', requireAuth, async (req: AuthRequest, res:
 router.post('/connect/spotify', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { code, state, redirectUri } = req.body as { code?: string; state?: string; redirectUri?: string };
-    console.log('[connect/spotify] redirectUri received:', redirectUri); // ADD THIS
-    console.log('[connect/spotify] code:', code?.slice(0, 10));  
     if (!code || !state) {
       return res.status(400).json({ error: 'code and state are required', data: null });
     }
@@ -170,8 +168,11 @@ router.get('/:userId/top-tracks', requireAuth, async (req: AuthRequest, res: Res
 router.post('/sync', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const track = await musicService.syncNowPlaying(req.userId!);
+    console.log('[sync] userId:', req.userId);
+    console.log('[sync] result:', JSON.stringify(track));
     return res.json({ data: track, error: null });
   } catch (e: any) {
+    console.log('[sync] error:', e.message);
     return res.status(500).json({ error: e.message, data: null });
   }
 });
