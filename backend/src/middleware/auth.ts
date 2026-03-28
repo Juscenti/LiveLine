@@ -3,6 +3,7 @@
 // ============================================================
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { getOrCreatePublicUserProfile } from '../lib/publicUserProfile';
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -26,14 +27,8 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
       return res.status(401).json({ error: 'Invalid token', data: null });
     }
 
-    // Look up public.users record
-    const { data: profile, error: profileErr } = await supabaseAdmin
-      .from('users')
-      .select('id')
-      .eq('auth_id', user.id)
-      .single();
-
-    if (profileErr || !profile) {
+    const profile = await getOrCreatePublicUserProfile(user);
+    if (!profile) {
       return res.status(401).json({ error: 'User profile not found', data: null });
     }
 

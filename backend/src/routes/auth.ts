@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase';
+import { getOrCreatePublicUserProfile } from '../lib/publicUserProfile';
 import { requireAuth } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 
@@ -41,11 +42,19 @@ export async function register(req: Request, res: Response) {
     return res.status(400).json({ error: authErr?.message ?? 'Registration failed', data: null });
   }
 
-  // Update the auto-created profile with the desired username
-  await supabaseAdmin
+  const ensured = await getOrCreatePublicUserProfile(authData.user);
+  if (!ensured) {
+    return res.status(500).json({ error: 'Account created but profile row could not be created', data: null });
+  }
+
+  const { error: updErr } = await supabaseAdmin
     .from('users')
-    .update({ username: username.toLowerCase(), email })
+    .update({ username: username.toLowerCase(), email: email.toLowerCase() })
     .eq('auth_id', authData.user.id);
+
+  if (updErr) {
+    return res.status(500).json({ error: updErr.message ?? 'Could not set profile username', data: null });
+  }
 
   // Sign in immediately so the client can create a session without using the (anon) client key.
   const { data: signInData, error: signInErr } = await supabaseAdmin.auth.signInWithPassword({
@@ -84,14 +93,19 @@ export async function login(req: Request, res: Response) {
   const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
   if (error) return res.status(401).json({ error: error.message, data: null });
 
+  const row = await getOrCreatePublicUserProfile(data.user);
+  if (!row) {
+    return res.status(500).json({ error: 'Could not load user profile', data: null });
+  }
+
   const { data: profile, error: profileErr } = await supabaseAdmin
     .from('users')
     .select('*')
-    .eq('auth_id', data.user.id)
+    .eq('id', row.id)
     .single();
 
   if (profileErr || !profile) {
-    return res.status(401).json({ error: 'User profile not found', data: null });
+    return res.status(500).json({ error: 'User profile not found', data: null });
   }
 
   return res.json({ data: { session: data.session, user: profile }, error: null });
