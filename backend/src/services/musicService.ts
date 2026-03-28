@@ -47,6 +47,38 @@ function storedScopesCoverSync(stored: string | null | undefined): boolean {
   return SPOTIFY_SYNC_REQUIRED_SCOPES.every((s) => have.has(s));
 }
 
+function spotifyWebApiErrorMessage(data: unknown): string {
+  const d = data as { error?: { message?: string; reason?: string } } | undefined;
+  return (d?.error?.message ?? d?.error?.reason ?? '').trim();
+}
+
+/** Operator / user hint when GET /v1/me fails (dev-mode allowlist, scopes, etc.). */
+function spotifyMeFailureHint(status: number, data: unknown): string {
+  const raw = spotifyWebApiErrorMessage(data);
+  const lower = raw.toLowerCase();
+  if (status === 403 || status === 401) {
+    if (
+      lower.includes('user not registered') ||
+      lower.includes('not registered in the developer dashboard')
+    ) {
+      return `${raw || `HTTP ${status}`} Add this Spotify account under User management in the Spotify Developer Dashboard (Development mode), or move the app to Extended quota.`;
+    }
+    if (lower.includes('insufficient') && lower.includes('scope')) {
+      return `${raw || `HTTP ${status}`} Disconnect and connect Spotify again in Liveline to grant all requested permissions.`;
+    }
+    if (
+      lower.includes('development') ||
+      lower.includes('not allowed') ||
+      lower.includes('forbidden')
+    ) {
+      return raw
+        ? `${raw} If the app is in Development mode, add your Spotify user to the app allowlist in the Developer Dashboard.`
+        : `Spotify returned ${status}. If the app is in Development mode, add your Spotify user to the allowlist in the Developer Dashboard.`;
+    }
+  }
+  return raw || `Spotify returned HTTP ${status}.`;
+}
+
 async function getSpotifyConnection(userId: string) {
   const { data, error } = await supabaseAdmin
     .from('music_connections')
@@ -281,6 +313,8 @@ export const musicService = {
     const token: SpotifyTokenResponse = tokenResp.data;
     const expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString();
 
+    // GET /v1/me may return 403 while token exchange still succeeds — e.g. Spotify app in
+    // Development mode with the Spotify user not on the dashboard User management allowlist.
     const meResp = await axios.get('https://api.spotify.com/v1/me', {
       headers: { Authorization: `Bearer ${token.access_token}` },
       timeout: 20000,
@@ -291,12 +325,27 @@ export const musicService = {
       console.log('[connectSpotify] /me error:', meResp.data);
     }
 
-    if (meResp.status !== 200) {
-      throw new Error(`Failed to get Spotify user info (${meResp.status}). Please try connecting again.`);
+    let platformUserId: string;
+    if (meResp.status === 200) {
+      const id = meResp.data?.id as string | undefined;
+      if (id) {
+        platformUserId = id;
+      } else {
+        console.warn('[connectSpotify] /me returned 200 without id; using fallback platform_user_id');
+        platformUserId = `fallback:${userId}`;
+      }
+    } else if (meResp.status === 401 || meResp.status === 403) {
+      const hint = spotifyMeFailureHint(meResp.status, meResp.data);
+      console.warn(
+        '[connectSpotify] GET /v1/me failed; persisting tokens with fallback platform_user_id. Hint:',
+        hint,
+      );
+      platformUserId = `fallback:${userId}`;
+    } else {
+      throw new Error(
+        `Failed to get Spotify user info (${meResp.status}). ${spotifyMeFailureHint(meResp.status, meResp.data)}`,
+      );
     }
-
-    const platformUserId = meResp.data?.id as string | undefined;
-    if (!platformUserId) throw new Error('Spotify /me did not return an id.');
 
     const { error } = await supabaseAdmin.from('music_connections').upsert(
       {
