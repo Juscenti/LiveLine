@@ -16,7 +16,7 @@ export default function MusicConnectScreen() {
     startPolling,
     stopPolling,
     syncNowPlaying,
-    spotifyReconnectNeeded,
+    spotifySyncIssue,
   } = useMusicStore();
   const [loadingAuthUrl, setLoadingAuthUrl] = useState(false);
   const [debugCode, setDebugCode] = useState('');
@@ -84,11 +84,20 @@ export default function MusicConnectScreen() {
 
       <Text style={styles.note}>Connect your music so Liveline can show what you’re listening to.</Text>
 
-      {spotifyReconnectNeeded ? (
+      {spotifySyncIssue === 'reconnect' ? (
         <View style={styles.reconnectBanner}>
           <Text style={styles.reconnectBannerText}>
             Spotify needs fresh permissions. Disconnect below, then connect again (you’ll see Spotify’s consent
             screen).
+          </Text>
+        </View>
+      ) : null}
+      {spotifySyncIssue === 'dashboard' ? (
+        <View style={styles.dashboardBanner}>
+          <Text style={styles.dashboardBannerText}>
+            Spotify is blocking this app for your account until the app owner adds your Spotify login under User
+            management in the Spotify Developer Dashboard (Development mode). This is not fixed by reconnecting
+            Liveline.
           </Text>
         </View>
       ) : null}
@@ -181,6 +190,15 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   reconnectBannerText: { color: COLORS.warning, fontSize: FONTS.sizes.sm, lineHeight: 20 },
+  dashboardBanner: {
+    backgroundColor: 'rgba(100, 149, 237, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(100, 149, 237, 0.35)',
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  dashboardBannerText: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm, lineHeight: 20 },
   sectionCard: {
     backgroundColor: COLORS.bgCard,
     borderRadius: RADIUS.lg,

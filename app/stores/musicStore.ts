@@ -8,13 +8,18 @@ import { MUSIC } from '@/constants';
 import type { MusicTrack, MusicPlatform } from '@/types';
 import * as Linking from 'expo-linking';
 
+/** Last POST /music/sync meta for Spotify (own account only). */
+export type SpotifySyncIssue = null | 'reconnect' | 'dashboard';
+
 interface MusicState {
   nowPlaying: MusicTrack | null;
   connectedPlatforms: MusicPlatform[];
   topTracks: MusicTrack[];
   isSyncing: boolean;
-  /** Server says Spotify token/scopes need reconnect (Settings → Music). */
-  spotifyReconnectNeeded: boolean;
+  /**
+   * From sync response meta: reconnect = permissions/scopes; dashboard = Spotify app User management (dev mode).
+   */
+  spotifySyncIssue: SpotifySyncIssue;
 
   syncNowPlaying: () => Promise<void>;
   hydrateConnectedPlatforms: () => Promise<void>;
@@ -35,7 +40,7 @@ export const useMusicStore = create<MusicState>((set) => ({
   connectedPlatforms: [],
   topTracks: [],
   isSyncing: false,
-  spotifyReconnectNeeded: false,
+  spotifySyncIssue: null,
 
   syncNowPlaying: async () => {
     if (Date.now() < syncBackoffUntil) return;
@@ -46,10 +51,16 @@ export const useMusicStore = create<MusicState>((set) => ({
       try {
         const res = await musicApi.syncNowPlaying();
         const body = res.data as { data?: MusicTrack | null; meta?: { code?: string } };
-        const needReconnect = body?.meta?.code === 'SPOTIFY_RECONNECT_NEEDED';
+        const code = body?.meta?.code;
+        const issue: SpotifySyncIssue =
+          code === 'SPOTIFY_RECONNECT_NEEDED'
+            ? 'reconnect'
+            : code === 'SPOTIFY_DEVELOPER_DASHBOARD_USER'
+              ? 'dashboard'
+              : null;
         set({
           nowPlaying: body?.data ?? null,
-          spotifyReconnectNeeded: needReconnect,
+          spotifySyncIssue: issue,
         });
       } catch (e) {
         const noResponse = axios.isAxiosError(e) && e.response == null;
@@ -106,7 +117,7 @@ export const useMusicStore = create<MusicState>((set) => ({
       connectedPlatforms: [],
       topTracks: [],
       isSyncing: false,
-      spotifyReconnectNeeded: false,
+      spotifySyncIssue: null,
     });
   },
 
@@ -131,7 +142,7 @@ export const useMusicStore = create<MusicState>((set) => ({
     if (platform === 'soundcloud')  await musicApi.connectSoundCloud(token);
     set((s) => ({
       connectedPlatforms: [...new Set([...s.connectedPlatforms, platform])],
-      spotifyReconnectNeeded: false,
+      spotifySyncIssue: null,
     }));
   },
 
@@ -141,7 +152,7 @@ export const useMusicStore = create<MusicState>((set) => ({
       set((s) => ({
         connectedPlatforms: s.connectedPlatforms.filter((p) => p !== platform),
         nowPlaying: s.nowPlaying?.source === platform ? null : s.nowPlaying,
-        spotifyReconnectNeeded: false,
+        spotifySyncIssue: null,
       }));
     } catch {
       throw new Error('Could not disconnect. Try again.');

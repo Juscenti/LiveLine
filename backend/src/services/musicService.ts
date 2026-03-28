@@ -10,7 +10,7 @@ export const SPOTIFY_SYNC_REQUIRED_SCOPES = [
 ] as const;
 
 export type SpotifySyncMeta = {
-  code?: 'SPOTIFY_RECONNECT_NEEDED';
+  code?: 'SPOTIFY_RECONNECT_NEEDED' | 'SPOTIFY_DEVELOPER_DASHBOARD_USER';
 };
 
 export type SpotifySyncResult = {
@@ -35,10 +35,27 @@ function logSpotify403Body(context: string, status: number, data: unknown) {
   }
 }
 
-function spotifyErrorIndicatesInsufficientScope(data: unknown): boolean {
+/** Spotify may return `{ error: { message } }` or occasionally a plain string body. */
+function spotifyErrorRawText(data: unknown): string {
+  if (typeof data === 'string') return data.trim();
   const d = data as { error?: { message?: string; reason?: string } } | undefined;
-  const msg = (d?.error?.message ?? d?.error?.reason ?? '').toLowerCase();
+  return (d?.error?.message ?? d?.error?.reason ?? '').trim();
+}
+
+function spotifyErrorIndicatesInsufficientScope(data: unknown): boolean {
+  const msg = spotifyErrorRawText(data).toLowerCase();
   return msg.includes('insufficient') && msg.includes('scope');
+}
+
+/** Development-mode app: user not on Spotify dashboard allowlist (403 on most Web API calls). */
+function spotifyErrorIndicatesDeveloperAllowlistRestriction(data: unknown): boolean {
+  const msg = spotifyErrorRawText(data).toLowerCase();
+  return (
+    msg.includes('may not be registered') ||
+    msg.includes('user not registered') ||
+    msg.includes('not registered in the developer dashboard') ||
+    msg.includes('developer.spotify.com/dashboard')
+  );
 }
 
 function storedScopesCoverSync(stored: string | null | undefined): boolean {
@@ -47,9 +64,55 @@ function storedScopesCoverSync(stored: string | null | undefined): boolean {
   return SPOTIFY_SYNC_REQUIRED_SCOPES.every((s) => have.has(s));
 }
 
+/** After failed currently-playing + recent fallback, choose meta for the client (dashboard vs reconnect). */
+function spotifySyncFailureMeta(
+  storedScope: string | null | undefined,
+  curStatus: number,
+  curData: unknown,
+  recentStatus: number,
+  recentData: unknown,
+): SpotifySyncMeta | null {
+  if (
+    (curStatus === 401 || curStatus === 403) &&
+    spotifyErrorIndicatesDeveloperAllowlistRestriction(curData)
+  ) {
+    return { code: 'SPOTIFY_DEVELOPER_DASHBOARD_USER' };
+  }
+  if (
+    (recentStatus === 401 || recentStatus === 403) &&
+    spotifyErrorIndicatesDeveloperAllowlistRestriction(recentData)
+  ) {
+    return { code: 'SPOTIFY_DEVELOPER_DASHBOARD_USER' };
+  }
+  const insufficient =
+    spotifyErrorIndicatesInsufficientScope(curData) ||
+    (recentStatus === 403 && spotifyErrorIndicatesInsufficientScope(recentData)) ||
+    (curStatus === 403 && recentStatus === 403) ||
+    !storedScopesCoverSync(storedScope);
+  if (insufficient) return { code: 'SPOTIFY_RECONNECT_NEEDED' };
+  return null;
+}
+
+function spotifyRecentOnlyFailureMeta(
+  storedScope: string | null | undefined,
+  recentStatus: number,
+  recentData: unknown,
+): SpotifySyncMeta | null {
+  if (
+    (recentStatus === 401 || recentStatus === 403) &&
+    spotifyErrorIndicatesDeveloperAllowlistRestriction(recentData)
+  ) {
+    return { code: 'SPOTIFY_DEVELOPER_DASHBOARD_USER' };
+  }
+  const needReconnect =
+    recentStatus === 403 &&
+    (spotifyErrorIndicatesInsufficientScope(recentData) || !storedScopesCoverSync(storedScope));
+  if (needReconnect) return { code: 'SPOTIFY_RECONNECT_NEEDED' };
+  return null;
+}
+
 function spotifyWebApiErrorMessage(data: unknown): string {
-  const d = data as { error?: { message?: string; reason?: string } } | undefined;
-  return (d?.error?.message ?? d?.error?.reason ?? '').trim();
+  return spotifyErrorRawText(data);
 }
 
 /** Operator / user hint when GET /v1/me fails (dev-mode allowlist, scopes, etc.). */
@@ -466,12 +529,9 @@ export const musicService = {
       const { track: m, status: recentSt, data: recentData } = await fetchRecentFromSpotify(accessToken);
       if (!m) {
         console.log('[sync] result: null (no recent tracks)');
-        const needReconnect =
-          recentSt === 403 &&
-          (spotifyErrorIndicatesInsufficientScope(recentData) || !storedScopesCoverSync(storedScope));
         return {
           activity: null,
-          meta: needReconnect ? reconnectMeta() : null,
+          meta: spotifyRecentOnlyFailureMeta(storedScope, recentSt, recentData),
         };
       }
       const result = await persistRecentTrack(userId, m);
@@ -488,14 +548,9 @@ export const musicService = {
         return { activity: result, meta: null };
       }
       console.log('[sync] result: null (fallback failed)');
-      const insufficient =
-        spotifyErrorIndicatesInsufficientScope(cur.data) ||
-        (recentSt === 403 && spotifyErrorIndicatesInsufficientScope(recentData)) ||
-        (cur.status === 403 && recentSt === 403) ||
-        !storedScopesCoverSync(storedScope);
       return {
         activity: null,
-        meta: insufficient ? reconnectMeta() : null,
+        meta: spotifySyncFailureMeta(storedScope, cur.status, cur.data, recentSt, recentData),
       };
     }
 
@@ -505,10 +560,10 @@ export const musicService = {
     const { track: fallback, status: recentSt, data: recentData } = await fetchRecentFromSpotify(accessToken);
     if (!fallback) {
       console.log('[sync] result: null');
-      const needReconnect =
-        recentSt === 403 &&
-        (spotifyErrorIndicatesInsufficientScope(recentData) || !storedScopesCoverSync(storedScope));
-      return { activity: null, meta: needReconnect ? reconnectMeta() : null };
+      return {
+        activity: null,
+        meta: spotifyRecentOnlyFailureMeta(storedScope, recentSt, recentData),
+      };
     }
     const result = await persistRecentTrack(userId, fallback);
     console.log('[sync] result:', result ? 'track saved' : 'null');

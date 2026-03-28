@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthStore } from '@/stores/authStore';
-import { useMusicStore } from '@/stores/musicStore';
+import { useMusicStore, type SpotifySyncIssue } from '@/stores/musicStore';
 import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 import { postsApi } from '@/services/api';
 import { COLORS, SPACING, FONTS, RADIUS, TAB_BAR, FEED } from '@/constants';
@@ -53,7 +53,7 @@ function ProfileHeader({
   posts,
   nowPlaying,
   spotifyConnected,
-  spotifyReconnectSuggested,
+  spotifySelfHint,
   friendsCount,
   totalLikes,
 }: {
@@ -61,7 +61,7 @@ function ProfileHeader({
   posts: Post[];
   nowPlaying: any;
   spotifyConnected: boolean;
-  spotifyReconnectSuggested: boolean;
+  spotifySelfHint: SpotifySyncIssue;
   friendsCount: number;
   totalLikes: number;
 }) {
@@ -119,7 +119,7 @@ function ProfileHeader({
           track={nowPlaying}
           spotifyConnected={spotifyConnected}
           isSelf
-          spotifyReconnectSuggested={spotifyReconnectSuggested}
+          spotifySelfHint={spotifySelfHint}
           onPressConnect={() => router.push('/music/connect')}
         />
 
@@ -432,7 +432,7 @@ export default function ProfileScreen() {
   const user = useAuthStore((s) => s.user);
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const friendsCount = useFriendsInboxStore((s) => s.friends.length);
-  const { nowPlaying, connectedPlatforms, spotifyReconnectNeeded } = useMusicStore();
+  const { nowPlaying, connectedPlatforms, spotifySyncIssue } = useMusicStore();
   const spotifyConnected = useMemo(() => connectedPlatforms.includes('spotify'), [connectedPlatforms]);
   const [posts, setPosts] = useState<Post[]>([]);
 
@@ -488,7 +488,7 @@ export default function ProfileScreen() {
         posts={posts}
         nowPlaying={nowPlaying}
         spotifyConnected={spotifyConnected}
-        spotifyReconnectSuggested={spotifyReconnectNeeded}
+        spotifySelfHint={spotifySyncIssue}
         friendsCount={friendsCount}
         totalLikes={totalLikes}
       />

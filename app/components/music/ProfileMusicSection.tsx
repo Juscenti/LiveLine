@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
 import MusicBadge from '@/components/music/MusicBadge';
 import type { MusicTrack } from '@/types';
+import type { SpotifySyncIssue } from '@/stores/musicStore';
 
 type Props = {
   track: MusicTrack | null;
@@ -19,8 +20,8 @@ type Props = {
    * null = not loaded yet — use neutral copy.
    */
   theirSpotifyLinked?: boolean | null;
-  /** Own profile: server returned SPOTIFY_RECONNECT_NEEDED on last sync */
-  spotifyReconnectSuggested?: boolean;
+  /** Own profile: last sync meta from server (reconnect vs Spotify dashboard allowlist) */
+  spotifySelfHint?: SpotifySyncIssue;
   onPressConnect?: () => void;
   /** When a friend views an accepted profile — quick emoji nudge opens chat via callback */
   friendCanInteract?: boolean;
@@ -35,7 +36,7 @@ export default function ProfileMusicSection({
   isSelf,
   viewingOthersProfile = false,
   theirSpotifyLinked = null,
-  spotifyReconnectSuggested = false,
+  spotifySelfHint = null,
   onPressConnect,
   friendCanInteract,
   onFriendInteract,
@@ -91,14 +92,21 @@ export default function ProfileMusicSection({
         </View>
       ) : null}
 
-      {isSelf && spotifyConnected && spotifyReconnectSuggested ? (
+      {isSelf && spotifyConnected && spotifySelfHint === 'reconnect' ? (
         <Text style={styles.reconnectHint}>
           Spotify permissions may be out of date. Open Music settings, disconnect, and connect again to
           restore now playing.
         </Text>
       ) : null}
 
-      {isSelf && spotifyConnected && !spotifyReconnectSuggested ? (
+      {isSelf && spotifyConnected && spotifySelfHint === 'dashboard' ? (
+        <Text style={styles.dashboardHint}>
+          Spotify is blocking API access for your account (Developer Dashboard: add this Spotify user under User
+          management, or the app needs extended quota). Reconnecting Liveline alone won’t fix it.
+        </Text>
+      ) : null}
+
+      {isSelf && spotifyConnected && !spotifySelfHint ? (
         <Text style={styles.hint}>Friends can peep this on your profile and the map.</Text>
       ) : null}
 
@@ -185,6 +193,12 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     fontSize: 11,
     color: COLORS.warning,
+    lineHeight: 15,
+  },
+  dashboardHint: {
+    marginTop: SPACING.sm,
+    fontSize: 11,
+    color: COLORS.textSecondary,
     lineHeight: 15,
   },
   reactRow: {
