@@ -20,7 +20,7 @@ type Props = {
    * null = not loaded yet — use neutral copy.
    */
   theirSpotifyLinked?: boolean | null;
-  /** Own profile: last sync meta from server (reconnect vs Spotify dashboard allowlist) */
+  /** Own profile: last sync meta from server (reconnect vs Spotify account/API restriction) */
   spotifySelfHint?: SpotifySyncIssue;
   onPressConnect?: () => void;
   /** When a friend views an accepted profile — quick emoji nudge opens chat via callback */
@@ -101,8 +101,8 @@ export default function ProfileMusicSection({
 
       {isSelf && spotifyConnected && spotifySelfHint === 'dashboard' ? (
         <Text style={styles.dashboardHint}>
-          Spotify is blocking API access for your account (Developer Dashboard: add this Spotify user under User
-          management, or the app needs extended quota). Reconnecting Liveline alone won’t fix it.
+          Spotify isn’t sending playback info to Liveline yet. Try disconnect and connect again, or wait and retry—this
+          can differ from other apps if they use another Spotify app or setup.
         </Text>
       ) : null}
 

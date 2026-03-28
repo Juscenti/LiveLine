@@ -95,9 +95,9 @@ export default function MusicConnectScreen() {
       {spotifySyncIssue === 'dashboard' ? (
         <View style={styles.dashboardBanner}>
           <Text style={styles.dashboardBannerText}>
-            Spotify is blocking this app for your account until the app owner adds your Spotify login under User
-            management in the Spotify Developer Dashboard (Development mode). This is not fixed by reconnecting
-            Liveline.
+            Spotify isn’t returning playback data to Liveline for this account right now. Try disconnect and connect
+            again, or check back later. Other apps can use a different Spotify configuration, so behavior may not
+            match a friend’s site.
           </Text>
         </View>
       ) : null}

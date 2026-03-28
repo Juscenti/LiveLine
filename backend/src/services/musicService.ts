@@ -115,16 +115,20 @@ function spotifyWebApiErrorMessage(data: unknown): string {
   return spotifyErrorRawText(data);
 }
 
-/** Operator / user hint when GET /v1/me fails (dev-mode allowlist, scopes, etc.). */
+/** Short hint for logs / rare API errors when GET /v1/me fails (avoid blaming users for dashboard setup). */
 function spotifyMeFailureHint(status: number, data: unknown): string {
   const raw = spotifyWebApiErrorMessage(data);
   const lower = raw.toLowerCase();
   if (status === 403 || status === 401) {
     if (
       lower.includes('user not registered') ||
-      lower.includes('not registered in the developer dashboard')
+      lower.includes('not registered in the developer dashboard') ||
+      lower.includes('developer.spotify.com/dashboard') ||
+      lower.includes('may not be registered')
     ) {
-      return `${raw || `HTTP ${status}`} Add this Spotify account under User management in the Spotify Developer Dashboard (Development mode), or move the app to Extended quota.`;
+      return raw
+        ? `${raw} Liveline will still save your connection; playback sync depends on Spotify accepting Web API calls for this app and account.`
+        : `Spotify returned HTTP ${status} for profile. Connection may still work for some endpoints once Spotify allows them.`;
     }
     if (lower.includes('insufficient') && lower.includes('scope')) {
       return `${raw || `HTTP ${status}`} Disconnect and connect Spotify again in Liveline to grant all requested permissions.`;
@@ -134,9 +138,7 @@ function spotifyMeFailureHint(status: number, data: unknown): string {
       lower.includes('not allowed') ||
       lower.includes('forbidden')
     ) {
-      return raw
-        ? `${raw} If the app is in Development mode, add your Spotify user to the app allowlist in the Developer Dashboard.`
-        : `Spotify returned ${status}. If the app is in Development mode, add your Spotify user to the allowlist in the Developer Dashboard.`;
+      return raw ? `${raw} Try again later or reconnect Spotify in Liveline.` : `Spotify returned HTTP ${status}. Try reconnecting in Liveline.`;
     }
   }
   return raw || `Spotify returned HTTP ${status}.`;
@@ -376,8 +378,7 @@ export const musicService = {
     const token: SpotifyTokenResponse = tokenResp.data;
     const expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString();
 
-    // GET /v1/me may return 403 while token exchange still succeeds — e.g. Spotify app in
-    // Development mode with the Spotify user not on the dashboard User management allowlist.
+    // GET /v1/me can 403 while token exchange succeeds (Spotify policy / app registration — see their error body).
     const meResp = await axios.get('https://api.spotify.com/v1/me', {
       headers: { Authorization: `Bearer ${token.access_token}` },
       timeout: 20000,

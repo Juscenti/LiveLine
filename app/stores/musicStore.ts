@@ -17,7 +17,7 @@ interface MusicState {
   topTracks: MusicTrack[];
   isSyncing: boolean;
   /**
-   * From sync response meta: reconnect = permissions/scopes; dashboard = Spotify app User management (dev mode).
+   * From sync response meta: reconnect = permissions/scopes; dashboard = Spotify rejected Web API for this account.
    */
   spotifySyncIssue: SpotifySyncIssue;
 
