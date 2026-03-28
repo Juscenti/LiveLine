@@ -9,8 +9,15 @@ import { musicApi } from '@/services/api';
 import * as Linking from 'expo-linking';
 
 export default function MusicConnectScreen() {
-  const { connectedPlatforms, connectPlatform, disconnectPlatform, startPolling, stopPolling, syncNowPlaying } =
-    useMusicStore();
+  const {
+    connectedPlatforms,
+    connectPlatform,
+    disconnectPlatform,
+    startPolling,
+    stopPolling,
+    syncNowPlaying,
+    spotifyReconnectNeeded,
+  } = useMusicStore();
   const [loadingAuthUrl, setLoadingAuthUrl] = useState(false);
   const [debugCode, setDebugCode] = useState('');
   const [lastSpotifyState, setLastSpotifyState] = useState('');
@@ -76,6 +83,15 @@ export default function MusicConnectScreen() {
       </View>
 
       <Text style={styles.note}>Connect your music so Liveline can show what you’re listening to.</Text>
+
+      {spotifyReconnectNeeded ? (
+        <View style={styles.reconnectBanner}>
+          <Text style={styles.reconnectBannerText}>
+            Spotify needs fresh permissions. Disconnect below, then connect again (you’ll see Spotify’s consent
+            screen).
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>Spotify</Text>
@@ -156,6 +172,15 @@ const styles = StyleSheet.create({
   backText: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm },
   title: { color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.lg },
   note: { color: COLORS.textTertiary, lineHeight: 20, marginBottom: SPACING.lg },
+  reconnectBanner: {
+    backgroundColor: 'rgba(255, 184, 0, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 184, 0, 0.35)',
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  reconnectBannerText: { color: COLORS.warning, fontSize: FONTS.sizes.sm, lineHeight: 20 },
   sectionCard: {
     backgroundColor: COLORS.bgCard,
     borderRadius: RADIUS.lg,

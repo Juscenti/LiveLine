@@ -3,7 +3,7 @@ import type { Response } from 'express';
 import { requireAuth } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 import { supabaseAdmin } from '../config/supabase';
-import { musicService } from '../services/musicService';
+import { musicService, type SpotifySyncMeta } from '../services/musicService';
 import { issueSpotifyOAuthState } from '../services/oauthStateStore';
 
 const router = Router();
@@ -70,6 +70,8 @@ router.get('/connect/spotify/auth-url', requireAuth, async (req: AuthRequest, re
     params.set('state', state);
     // Request refresh token where supported.
     params.set('access_type', 'offline');
+    // Force consent so users get newly added scopes after we expand the list.
+    params.set('show_dialog', 'true');
 
     const url = `https://accounts.spotify.com/authorize?${params.toString()}`;
 
@@ -151,7 +153,8 @@ router.get('/:userId/now-playing', requireAuth, async (req: AuthRequest, res: Re
     .maybeSingle();
 
   if (error) return res.status(500).json({ error: error.message, data: null });
-  return res.json({ data, error: null });
+  const spotify_linked = await musicService.userHasSpotifyLinked(req.params.userId);
+  return res.json({ data, error: null, meta: { spotify_linked } });
 });
 
 router.get('/:userId/top-tracks', requireAuth, async (req: AuthRequest, res: Response) => {
@@ -167,10 +170,15 @@ router.get('/:userId/top-tracks', requireAuth, async (req: AuthRequest, res: Res
 
 router.post('/sync', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const track = await musicService.syncNowPlaying(req.userId!);
+    const { activity, meta } = await musicService.syncNowPlaying(req.userId!);
     console.log('[sync] userId:', req.userId);
-    console.log('[sync] result:', JSON.stringify(track));
-    return res.json({ data: track, error: null });
+    console.log('[sync] result:', JSON.stringify(activity));
+    const payload: { data: typeof activity; error: null; meta?: SpotifySyncMeta } = {
+      data: activity,
+      error: null,
+    };
+    if (meta?.code) payload.meta = meta;
+    return res.json(payload);
   } catch (e: any) {
     console.log('[sync] error:', e.message);
     return res.status(500).json({ error: e.message, data: null });

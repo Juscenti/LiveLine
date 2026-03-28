@@ -53,6 +53,7 @@ function ProfileHeader({
   posts,
   nowPlaying,
   spotifyConnected,
+  spotifyReconnectSuggested,
   friendsCount,
   totalLikes,
 }: {
@@ -60,6 +61,7 @@ function ProfileHeader({
   posts: Post[];
   nowPlaying: any;
   spotifyConnected: boolean;
+  spotifyReconnectSuggested: boolean;
   friendsCount: number;
   totalLikes: number;
 }) {
@@ -117,6 +119,7 @@ function ProfileHeader({
           track={nowPlaying}
           spotifyConnected={spotifyConnected}
           isSelf
+          spotifyReconnectSuggested={spotifyReconnectSuggested}
           onPressConnect={() => router.push('/music/connect')}
         />
 
@@ -429,7 +432,7 @@ export default function ProfileScreen() {
   const user = useAuthStore((s) => s.user);
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const friendsCount = useFriendsInboxStore((s) => s.friends.length);
-  const { nowPlaying, connectedPlatforms } = useMusicStore();
+  const { nowPlaying, connectedPlatforms, spotifyReconnectNeeded } = useMusicStore();
   const spotifyConnected = useMemo(() => connectedPlatforms.includes('spotify'), [connectedPlatforms]);
   const [posts, setPosts] = useState<Post[]>([]);
 
@@ -485,6 +488,7 @@ export default function ProfileScreen() {
         posts={posts}
         nowPlaying={nowPlaying}
         spotifyConnected={spotifyConnected}
+        spotifyReconnectSuggested={spotifyReconnectNeeded}
         friendsCount={friendsCount}
         totalLikes={totalLikes}
       />

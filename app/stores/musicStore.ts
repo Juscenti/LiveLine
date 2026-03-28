@@ -13,6 +13,8 @@ interface MusicState {
   connectedPlatforms: MusicPlatform[];
   topTracks: MusicTrack[];
   isSyncing: boolean;
+  /** Server says Spotify token/scopes need reconnect (Settings → Music). */
+  spotifyReconnectNeeded: boolean;
 
   syncNowPlaying: () => Promise<void>;
   hydrateConnectedPlatforms: () => Promise<void>;
@@ -33,6 +35,7 @@ export const useMusicStore = create<MusicState>((set) => ({
   connectedPlatforms: [],
   topTracks: [],
   isSyncing: false,
+  spotifyReconnectNeeded: false,
 
   syncNowPlaying: async () => {
     if (Date.now() < syncBackoffUntil) return;
@@ -42,10 +45,18 @@ export const useMusicStore = create<MusicState>((set) => ({
       set({ isSyncing: true });
       try {
         const res = await musicApi.syncNowPlaying();
-        const body = res.data as { data?: MusicTrack | null };
-        set({ nowPlaying: body?.data ?? null });
+        const body = res.data as { data?: MusicTrack | null; meta?: { code?: string } };
+        const needReconnect = body?.meta?.code === 'SPOTIFY_RECONNECT_NEEDED';
+        set({
+          nowPlaying: body?.data ?? null,
+          spotifyReconnectNeeded: needReconnect,
+        });
       } catch (e) {
-        if (axios.isAxiosError(e) && e.response?.status === 429) {
+        const noResponse = axios.isAxiosError(e) && e.response == null;
+        if (noResponse && __DEV__) {
+          // eslint-disable-next-line no-console
+          console.warn('[syncNowPlaying] network error (tunnel/offline); will retry on next poll');
+        } else if (axios.isAxiosError(e) && e.response?.status === 429) {
           const ra = e.response.headers?.['retry-after'];
           const sec = Number(Array.isArray(ra) ? ra[0] : ra);
           const ms =
@@ -57,7 +68,9 @@ export const useMusicStore = create<MusicState>((set) => ({
           }
           return;
         }
-        console.error('[syncNowPlaying] failed:', e);
+        if (!noResponse) {
+          console.error('[syncNowPlaying] failed:', e);
+        }
       } finally {
         set({ isSyncing: false });
       }
@@ -88,7 +101,13 @@ export const useMusicStore = create<MusicState>((set) => ({
       syncTimer = null;
     }
     syncBackoffUntil = 0;
-    set({ nowPlaying: null, connectedPlatforms: [], topTracks: [], isSyncing: false });
+    set({
+      nowPlaying: null,
+      connectedPlatforms: [],
+      topTracks: [],
+      isSyncing: false,
+      spotifyReconnectNeeded: false,
+    });
   },
 
   startPolling: () => {
@@ -112,6 +131,7 @@ export const useMusicStore = create<MusicState>((set) => ({
     if (platform === 'soundcloud')  await musicApi.connectSoundCloud(token);
     set((s) => ({
       connectedPlatforms: [...new Set([...s.connectedPlatforms, platform])],
+      spotifyReconnectNeeded: false,
     }));
   },
 
@@ -121,6 +141,7 @@ export const useMusicStore = create<MusicState>((set) => ({
       set((s) => ({
         connectedPlatforms: s.connectedPlatforms.filter((p) => p !== platform),
         nowPlaying: s.nowPlaying?.source === platform ? null : s.nowPlaying,
+        spotifyReconnectNeeded: false,
       }));
     } catch {
       throw new Error('Could not disconnect. Try again.');

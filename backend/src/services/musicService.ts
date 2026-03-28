@@ -1,13 +1,51 @@
 import axios from 'axios';
+import type { AxiosResponse } from 'axios';
 import { supabaseAdmin } from '../config/supabase';
 import { consumeSpotifyOAuthState } from './oauthStateStore';
+
+/** Minimum scopes for player + recently-played sync (must match authorize URL in routes/music.ts). */
+export const SPOTIFY_SYNC_REQUIRED_SCOPES = [
+  'user-read-currently-playing',
+  'user-read-recently-played',
+] as const;
+
+export type SpotifySyncMeta = {
+  code?: 'SPOTIFY_RECONNECT_NEEDED';
+};
+
+export type SpotifySyncResult = {
+  activity: Record<string, unknown> | null;
+  meta: SpotifySyncMeta | null;
+};
 
 type SpotifyTokenResponse = {
   access_token: string;
   refresh_token?: string;
   expires_in: number;
   token_type: string;
+  scope?: string;
 };
+
+function logSpotify403Body(context: string, status: number, data: unknown) {
+  if (status !== 403 && status !== 401) return;
+  try {
+    console.log(`[sync] Spotify ${context} ${status} body:`, JSON.stringify(data));
+  } catch {
+    console.log(`[sync] Spotify ${context} ${status} body: (unserializable)`);
+  }
+}
+
+function spotifyErrorIndicatesInsufficientScope(data: unknown): boolean {
+  const d = data as { error?: { message?: string; reason?: string } } | undefined;
+  const msg = (d?.error?.message ?? d?.error?.reason ?? '').toLowerCase();
+  return msg.includes('insufficient') && msg.includes('scope');
+}
+
+function storedScopesCoverSync(stored: string | null | undefined): boolean {
+  if (stored == null || stored === '') return true;
+  const have = new Set(stored.split(/\s+/).map((s) => s.trim()).filter(Boolean));
+  return SPOTIFY_SYNC_REQUIRED_SCOPES.every((s) => have.has(s));
+}
 
 async function getSpotifyConnection(userId: string) {
   const { data, error } = await supabaseAdmin
@@ -69,10 +107,9 @@ async function insertPlayingRow(userId: string, m: NormalizedSpotifyTrack) {
     .single();
 
   if (insert.error) throw insert.error;
-  return insert.data;
+  return insert.data as Record<string, unknown>;
 }
 
-/** Last-listen row: update timestamp if same track to avoid sync spam */
 async function persistRecentTrack(userId: string, m: NormalizedSpotifyTrack) {
   if (m.platform_track_id) {
     const { data: latest } = await supabaseAdmin
@@ -91,7 +128,7 @@ async function persistRecentTrack(userId: string, m: NormalizedSpotifyTrack) {
         .eq('id', latest.id)
         .select('*')
         .single();
-      if (!u.error && u.data) return u.data;
+      if (!u.error && u.data) return u.data as Record<string, unknown>;
     }
   }
 
@@ -113,10 +150,12 @@ async function persistRecentTrack(userId: string, m: NormalizedSpotifyTrack) {
     .single();
 
   if (insert.error) throw insert.error;
-  return insert.data;
+  return insert.data as Record<string, unknown>;
 }
 
-async function fetchRecentFromSpotify(accessToken: string): Promise<NormalizedSpotifyTrack | null> {
+async function fetchRecentFromSpotify(
+  accessToken: string,
+): Promise<{ track: NormalizedSpotifyTrack | null; status: number; data: unknown }> {
   const rec = await axios.get('https://api.spotify.com/v1/me/player/recently-played', {
     params: { limit: 1 },
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -124,13 +163,17 @@ async function fetchRecentFromSpotify(accessToken: string): Promise<NormalizedSp
     validateStatus: () => true,
   });
 
-  if (rec.status !== 200 || !rec.data?.items?.length) return null;
+  logSpotify403Body('recently-played', rec.status, rec.data);
+
+  if (rec.status !== 200 || !rec.data?.items?.length) {
+    return { track: null, status: rec.status, data: rec.data };
+  }
   const item = rec.data.items[0]?.track;
-  if (!item) return null;
-  return mapSpotifyTrackItem(item);
+  if (!item) return { track: null, status: rec.status, data: rec.data };
+  return { track: mapSpotifyTrackItem(item), status: rec.status, data: rec.data };
 }
 
-async function getCurrentPlayingFromSpotify(accessToken: string) {
+async function getCurrentPlayingFromSpotify(accessToken: string): Promise<AxiosResponse> {
   return axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
     headers: { Authorization: `Bearer ${accessToken}` },
     timeout: 20000,
@@ -138,7 +181,7 @@ async function getCurrentPlayingFromSpotify(accessToken: string) {
   });
 }
 
-async function refreshSpotifyAccessToken(conn: any) {
+async function refreshSpotifyAccessToken(conn: Record<string, unknown>) {
   if (!conn?.refresh_token) throw new Error('Missing Spotify refresh token.');
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
@@ -147,7 +190,7 @@ async function refreshSpotifyAccessToken(conn: any) {
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
-    refresh_token: conn.refresh_token,
+    refresh_token: conn.refresh_token as string,
   }).toString();
 
   const resp = await axios.post('https://accounts.spotify.com/api/token', body, {
@@ -161,14 +204,19 @@ async function refreshSpotifyAccessToken(conn: any) {
   const token: SpotifyTokenResponse = resp.data;
   const expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString();
 
+  const updatePayload: Record<string, unknown> = {
+    access_token: token.access_token,
+    refresh_token: token.refresh_token ?? conn.refresh_token,
+    token_expires_at: expiresAt,
+  };
+  if (typeof token.scope === 'string' && token.scope.trim()) {
+    updatePayload.spotify_scope = token.scope;
+  }
+
   const { error } = await supabaseAdmin
     .from('music_connections')
-    .update({
-      access_token: token.access_token,
-      refresh_token: token.refresh_token ?? conn.refresh_token,
-      token_expires_at: expiresAt,
-    })
-    .eq('id', conn.id);
+    .update(updatePayload)
+    .eq('id', conn.id as string);
 
   if (error) throw error;
   return {
@@ -189,7 +237,6 @@ export const musicService = {
       throw new Error('Spotify OAuth is not configured (SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI).');
     }
 
-    // Exchange authorization code for tokens.
     const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -210,6 +257,9 @@ export const musicService = {
       console.log('[connectSpotify] token error:', tokenResp.data?.error, tokenResp.data?.error_description);
     } else {
       console.log('[connectSpotify] token exchange success, has refresh_token:', !!tokenResp.data?.refresh_token);
+      if (tokenResp.data?.scope) {
+        console.log('[connectSpotify] granted scope:', tokenResp.data.scope);
+      }
     }
 
     if (tokenResp.status >= 400) {
@@ -219,7 +269,6 @@ export const musicService = {
         (typeof errBody?.error === 'string' && errBody.error) ||
         '';
 
-      // Don't consume state for authorization code errors - user can retry
       if (errBody?.error === 'invalid_grant') {
         throw new Error('Authorization code expired. Please try connecting to Spotify again.');
       }
@@ -232,7 +281,6 @@ export const musicService = {
     const token: SpotifyTokenResponse = tokenResp.data;
     const expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString();
 
-    // Fetch Spotify user id.
     const meResp = await axios.get('https://api.spotify.com/v1/me', {
       headers: { Authorization: `Bearer ${token.access_token}` },
       timeout: 20000,
@@ -244,14 +292,12 @@ export const musicService = {
     }
 
     if (meResp.status !== 200) {
-      // Don't consume state for /me endpoint errors - token might be invalid
       throw new Error(`Failed to get Spotify user info (${meResp.status}). Please try connecting again.`);
     }
 
     const platformUserId = meResp.data?.id as string | undefined;
     if (!platformUserId) throw new Error('Spotify /me did not return an id.');
 
-    // Store connection + refresh token for future sync.
     const { error } = await supabaseAdmin.from('music_connections').upsert(
       {
         user_id: userId,
@@ -260,14 +306,14 @@ export const musicService = {
         access_token: token.access_token,
         refresh_token: token.refresh_token ?? null,
         token_expires_at: expiresAt,
+        spotify_scope: typeof token.scope === 'string' ? token.scope : null,
         is_active: true,
       },
-      { onConflict: 'user_id,platform' }
+      { onConflict: 'user_id,platform' },
     );
 
     if (error) throw error;
 
-    // Validate and consume OAuth state only after ALL operations succeed
     if (!consumeSpotifyOAuthState(state, userId)) {
       throw new Error('Invalid or expired OAuth state. Open the music link again from the app.');
     }
@@ -281,7 +327,7 @@ export const musicService = {
         is_active: true,
         platform_user_id: token,
       },
-      { onConflict: 'user_id,platform' }
+      { onConflict: 'user_id,platform' },
     );
   },
 
@@ -293,38 +339,59 @@ export const musicService = {
         is_active: true,
         platform_user_id: code,
       },
-      { onConflict: 'user_id,platform' }
+      { onConflict: 'user_id,platform' },
     );
   },
 
-  async syncNowPlaying(userId: string) {
+  async userHasSpotifyLinked(userId: string): Promise<boolean> {
+    const { data, error } = await supabaseAdmin
+      .from('music_connections')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('platform', 'spotify')
+      .eq('is_active', true)
+      .maybeSingle();
+    if (error) return false;
+    return !!data;
+  },
+
+  async syncNowPlaying(userId: string): Promise<SpotifySyncResult> {
+    const reconnectMeta = (): SpotifySyncMeta => ({ code: 'SPOTIFY_RECONNECT_NEEDED' });
+
     console.log('[sync] userId:', userId);
     const conn = await getSpotifyConnection(userId);
     if (!conn) {
       console.log('[sync] no connection found');
-      return null;
+      return { activity: null, meta: null };
     }
     console.log('[sync] connection found, access_token exists:', !!conn.access_token);
 
+    const storedScope = (conn as { spotify_scope?: string | null }).spotify_scope;
+    if (storedScope != null && storedScope !== '' && !storedScopesCoverSync(storedScope)) {
+      console.log('[sync] stored spotify_scope missing required playback scopes');
+      return { activity: null, meta: reconnectMeta() };
+    }
+
     const now = Date.now();
-    const expiresAtMs = conn.token_expires_at ? new Date(conn.token_expires_at).getTime() : 0;
+    const expiresAtMs = conn.token_expires_at ? new Date(conn.token_expires_at as string).getTime() : 0;
     let accessToken = conn.access_token as string;
 
-    // Refresh if needed.
     if ((!expiresAtMs || expiresAtMs - now < 60_000) && conn.refresh_token) {
-      const refreshed = await refreshSpotifyAccessToken(conn);
+      const refreshed = await refreshSpotifyAccessToken(conn as Record<string, unknown>);
       accessToken = refreshed.accessToken;
     }
 
     let cur = await getCurrentPlayingFromSpotify(accessToken);
+    logSpotify403Body('currently-playing', cur.status, cur.data);
     console.log('[sync] currently-playing status:', cur.status);
 
     if ((cur.status === 401 || cur.status === 403) && conn.refresh_token) {
       console.log('[sync] attempting token refresh');
       try {
-        const refreshed = await refreshSpotifyAccessToken(conn);
+        const refreshed = await refreshSpotifyAccessToken(conn as Record<string, unknown>);
         accessToken = refreshed.accessToken;
         cur = await getCurrentPlayingFromSpotify(accessToken);
+        logSpotify403Body('currently-playing (after refresh)', cur.status, cur.data);
         console.log('[sync] after refresh, currently-playing status:', cur.status);
       } catch (refreshErr) {
         console.warn('Spotify access token refresh failed while syncing now playing', refreshErr);
@@ -337,49 +404,65 @@ export const musicService = {
       if (isPlaying) {
         const result = await insertPlayingRow(userId, m);
         console.log('[sync] result: now playing track saved');
-        return result;
+        return { activity: result, meta: null };
       }
       await clearUserNowPlayingFlags(userId);
       const result = await persistRecentTrack(userId, m);
       console.log('[sync] result: recent track saved');
-      return result;
+      return { activity: result, meta: null };
     }
 
     if (cur.status === 204 || (cur.status === 200 && !cur.data?.item)) {
       await clearUserNowPlayingFlags(userId);
-      const m = await fetchRecentFromSpotify(accessToken);
+      const { track: m, status: recentSt, data: recentData } = await fetchRecentFromSpotify(accessToken);
       if (!m) {
         console.log('[sync] result: null (no recent tracks)');
-        return null;
+        const needReconnect =
+          recentSt === 403 &&
+          (spotifyErrorIndicatesInsufficientScope(recentData) || !storedScopesCoverSync(storedScope));
+        return {
+          activity: null,
+          meta: needReconnect ? reconnectMeta() : null,
+        };
       }
       const result = await persistRecentTrack(userId, m);
       console.log('[sync] result: recent track saved');
-      return result;
+      return { activity: result, meta: null };
     }
 
     if (cur.status === 401 || cur.status === 403 || cur.status === 404 || cur.status === 429) {
-      const m = await fetchRecentFromSpotify(accessToken);
+      const { track: m, status: recentSt, data: recentData } = await fetchRecentFromSpotify(accessToken);
       if (m) {
         await clearUserNowPlayingFlags(userId);
         const result = await persistRecentTrack(userId, m);
         console.log('[sync] result: fallback recent track saved');
-        return result;
+        return { activity: result, meta: null };
       }
       console.log('[sync] result: null (fallback failed)');
-      return null;
+      const insufficient =
+        spotifyErrorIndicatesInsufficientScope(cur.data) ||
+        (recentSt === 403 && spotifyErrorIndicatesInsufficientScope(recentData)) ||
+        (cur.status === 403 && recentSt === 403) ||
+        !storedScopesCoverSync(storedScope);
+      return {
+        activity: null,
+        meta: insufficient ? reconnectMeta() : null,
+      };
     }
 
     if (cur.status >= 400) throw new Error(`Spotify currently-playing failed (${cur.status}).`);
 
     await clearUserNowPlayingFlags(userId);
-    const fallback = await fetchRecentFromSpotify(accessToken);
+    const { track: fallback, status: recentSt, data: recentData } = await fetchRecentFromSpotify(accessToken);
     if (!fallback) {
       console.log('[sync] result: null');
-      return null;
+      const needReconnect =
+        recentSt === 403 &&
+        (spotifyErrorIndicatesInsufficientScope(recentData) || !storedScopesCoverSync(storedScope));
+      return { activity: null, meta: needReconnect ? reconnectMeta() : null };
     }
     const result = await persistRecentTrack(userId, fallback);
     console.log('[sync] result:', result ? 'track saved' : 'null');
-    return result;
+    return { activity: result, meta: null };
   },
 };
-

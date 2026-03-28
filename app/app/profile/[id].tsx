@@ -64,6 +64,7 @@ export default function PublicProfileScreen() {
   });
   const [chatLoading, setChatLoading] = useState(false);
   const [theirMusic, setTheirMusic] = useState<MusicTrack | null>(null);
+  const [theirSpotifyLinked, setTheirSpotifyLinked] = useState<boolean | null>(null);
 
   const isMe = me?.id === id;
 
@@ -106,8 +107,13 @@ export default function PublicProfileScreen() {
       .getNowPlaying(id)
       .then((r) => {
         setTheirMusic(parseNowPlayingPayload(r));
+        const linked = (r.data as { meta?: { spotify_linked?: boolean } })?.meta?.spotify_linked;
+        setTheirSpotifyLinked(typeof linked === 'boolean' ? linked : null);
       })
-      .catch(() => setTheirMusic(null));
+      .catch(() => {
+        setTheirMusic(null);
+        setTheirSpotifyLinked(null);
+      });
   }, [id]);
 
   useFocusEffect(
@@ -191,7 +197,7 @@ export default function PublicProfileScreen() {
   const displayTrack = isMe ? myNowPlaying : theirMusic;
   const spotifyConnectedForCard = isMe
     ? connectedPlatforms.includes('spotify')
-    : !!(theirMusic?.song && theirMusic?.source);
+    : theirSpotifyLinked === true;
   const isAcceptedFriend = !isMe && rel.status === 'accepted';
   /** Same music strip as tab profile: always show (blocked users rarely reach here). */
   const showMusicCard = rel.status !== 'blocked';
@@ -277,6 +283,7 @@ export default function PublicProfileScreen() {
               spotifyConnected={spotifyConnectedForCard}
               isSelf={isMe}
               viewingOthersProfile={!isMe}
+              theirSpotifyLinked={!isMe ? theirSpotifyLinked : null}
               onPressConnect={isMe ? () => router.push('/music/connect') : undefined}
               friendCanInteract={isAcceptedFriend}
               onFriendInteract={() => {

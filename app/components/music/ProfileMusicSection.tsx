@@ -14,6 +14,13 @@ type Props = {
   isSelf: boolean;
   /** Someone else’s profile — never show “Connect Spotify”, use friend-empty copy */
   viewingOthersProfile?: boolean;
+  /**
+   * When viewing someone else: from GET /music/:id/now-playing `meta.spotify_linked`.
+   * null = not loaded yet — use neutral copy.
+   */
+  theirSpotifyLinked?: boolean | null;
+  /** Own profile: server returned SPOTIFY_RECONNECT_NEEDED on last sync */
+  spotifyReconnectSuggested?: boolean;
   onPressConnect?: () => void;
   /** When a friend views an accepted profile — quick emoji nudge opens chat via callback */
   friendCanInteract?: boolean;
@@ -27,6 +34,8 @@ export default function ProfileMusicSection({
   spotifyConnected,
   isSelf,
   viewingOthersProfile = false,
+  theirSpotifyLinked = null,
+  spotifyReconnectSuggested = false,
   onPressConnect,
   friendCanInteract,
   onFriendInteract,
@@ -40,7 +49,11 @@ export default function ProfileMusicSection({
         ? 'Last played on Spotify'
         : 'Last thing they played'
     : viewingOthersProfile
-      ? 'No Spotify activity here yet — they may need to connect Liveline or play something.'
+      ? theirSpotifyLinked === true
+        ? 'No recent music showing yet. They may need to reconnect Spotify in Liveline (Settings → Music).'
+        : theirSpotifyLinked === false
+          ? 'They haven’t linked Spotify to Liveline yet.'
+          : 'No recent music on their profile right now.'
       : spotifyConnected
         ? 'Nothing on the deck — play a song in Spotify'
         : 'Link Spotify so people see your vibe';
@@ -78,7 +91,14 @@ export default function ProfileMusicSection({
         </View>
       ) : null}
 
-      {isSelf && spotifyConnected ? (
+      {isSelf && spotifyConnected && spotifyReconnectSuggested ? (
+        <Text style={styles.reconnectHint}>
+          Spotify permissions may be out of date. Open Music settings, disconnect, and connect again to
+          restore now playing.
+        </Text>
+      ) : null}
+
+      {isSelf && spotifyConnected && !spotifyReconnectSuggested ? (
         <Text style={styles.hint}>Friends can peep this on your profile and the map.</Text>
       ) : null}
 
@@ -159,6 +179,12 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     fontSize: 11,
     color: COLORS.textTertiary,
+    lineHeight: 15,
+  },
+  reconnectHint: {
+    marginTop: SPACING.sm,
+    fontSize: 11,
+    color: COLORS.warning,
     lineHeight: 15,
   },
   reactRow: {

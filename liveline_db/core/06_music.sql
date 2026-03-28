@@ -18,6 +18,9 @@ CREATE TABLE public.music_connections (
     -- Platform-specific user identifier
     platform_user_id TEXT,
 
+    -- Space-separated scopes returned by Spotify (playback sync needs currently-playing + recently-played)
+    spotify_scope   TEXT,
+
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
 
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
