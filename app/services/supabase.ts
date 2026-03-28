@@ -29,6 +29,21 @@ const SUPABASE_URL = rewriteLocalhostForAndroidEmulator(
 );
 const SUPABASE_ANON_KEY = normalizeEnv(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '');
 
+/** Stable key so we can delete it on device when wiping auth; also scrub legacy `sb-<ref>-auth-token`. */
+export const LIVELINE_SUPABASE_AUTH_STORAGE_KEY = 'liveline-supabase-auth-v1';
+
+export function supabaseAuthStorageKeysForWipe(): string[] {
+  const keys = [LIVELINE_SUPABASE_AUTH_STORAGE_KEY];
+  try {
+    const host = new URL(SUPABASE_URL).hostname;
+    const ref = host.split('.')[0];
+    if (ref) keys.push(`sb-${ref}-auth-token`);
+  } catch {
+    // ignore
+  }
+  return keys;
+}
+
 // Fail fast if env vars were not injected into the JS bundle.
 if (!SUPABASE_URL) {
   throw new Error('Missing env: EXPO_PUBLIC_SUPABASE_URL');
@@ -61,6 +76,7 @@ const ExpoSecureStoreAdapter = {
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: ExpoSecureStoreAdapter as any,
+    storageKey: LIVELINE_SUPABASE_AUTH_STORAGE_KEY,
     /** Must stay on so access tokens refresh while the app is open; otherwise users re-login constantly. */
     autoRefreshToken: true,
     persistSession: true,

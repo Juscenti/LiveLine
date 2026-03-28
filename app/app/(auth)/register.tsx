@@ -1,12 +1,13 @@
 // ============================================================
 // app/(auth)/register.tsx
 // ============================================================
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, Alert, ScrollView,
 } from 'react-native';
 import { Link, router } from 'expo-router';
+import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 import { formatApiError } from '@/utils/apiErrors';
 import { COLORS, FONTS, SPACING, RADIUS } from '@/constants';
@@ -17,16 +18,31 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const submitLock = useRef(false);
 
   const handleRegister = async () => {
     if (!username || !email || !password) return Alert.alert('All fields are required.');
     if (password !== confirmPassword) return Alert.alert('Passwords do not match.');
     if (password.length < 8) return Alert.alert('Password must be at least 8 characters.');
+    if (submitLock.current || isLoading) return;
+    submitLock.current = true;
     try {
       await register(email.trim().toLowerCase(), password, username.trim().toLowerCase());
       router.replace('/(tabs)/feed');
     } catch (e: unknown) {
+      if (axios.isAxiosError(e) && e.response?.status === 409) {
+        const code = (e.response.data as { code?: string } | undefined)?.code;
+        if (code === 'EMAIL_EXISTS') {
+          Alert.alert('Account already exists', 'That email is registered. Sign in instead.', [
+            { text: 'OK', style: 'cancel' },
+            { text: 'Sign in', onPress: () => router.push('/(auth)/login') },
+          ]);
+          return;
+        }
+      }
       Alert.alert('Registration failed', formatApiError(e));
+    } finally {
+      submitLock.current = false;
     }
   };
 

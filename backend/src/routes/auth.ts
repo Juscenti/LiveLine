@@ -27,7 +27,27 @@ export async function register(req: Request, res: Response) {
     .eq('username', username.toLowerCase())
     .maybeSingle();
 
-  if (existing) return res.status(409).json({ error: 'Username already taken', data: null });
+  if (existing) {
+    return res.status(409).json({
+      error: 'That username is taken. Pick another.',
+      code: 'USERNAME_TAKEN',
+      data: null,
+    });
+  }
+
+  const { data: emailRow } = await supabaseAdmin
+    .from('users')
+    .select('id')
+    .eq('email', email.toLowerCase())
+    .maybeSingle();
+
+  if (emailRow) {
+    return res.status(409).json({
+      error: 'That email is already registered. Sign in with it instead.',
+      code: 'EMAIL_EXISTS',
+      data: null,
+    });
+  }
 
   // `email_confirm: true` marks the email confirmed in Auth immediately (good for dev/MVP).
   // For production, require verification in Supabase (Auth → Providers → Email) and/or
@@ -39,7 +59,17 @@ export async function register(req: Request, res: Response) {
   });
 
   if (authErr || !authData.user) {
-    return res.status(400).json({ error: authErr?.message ?? 'Registration failed', data: null });
+    const raw = authErr?.message ?? 'Registration failed';
+    const emailTaken =
+      /already been registered|already exists|already registered|user already|duplicate/i.test(raw);
+    if (emailTaken) {
+      return res.status(409).json({
+        error: 'That email is already registered. Sign in with it instead.',
+        code: 'EMAIL_EXISTS',
+        data: null,
+      });
+    }
+    return res.status(400).json({ error: raw, data: null });
   }
 
   const ensured = await getOrCreatePublicUserProfile(authData.user);

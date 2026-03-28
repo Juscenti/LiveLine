@@ -7,6 +7,11 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/services/supabase';
 import { authApi, wakeBackend } from '@/services/api';
 import { clearAccessToken, setAccessToken } from '@/services/accessTokenStore';
+import {
+  applyOneTimeClientAuthEpochWipe,
+  nuclearWipeLocalAuthState,
+  shouldNuclearWipeAuthOnLaunch,
+} from '@/services/authWipe';
 import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 import { useMusicStore } from '@/stores/musicStore';
 import { useNotificationStore } from '@/stores/notificationStore';
@@ -74,6 +79,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isInitialized: false,
 
   initialize: async () => {
+    let wipedOnLaunch = false;
+    if (shouldNuclearWipeAuthOnLaunch()) {
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[Liveline] EXPO_PUBLIC_NUCLEAR_AUTH_WIPE_ON_LAUNCH is set — wiping local auth. Remove it from app/.env after this launch.',
+        );
+      }
+      await nuclearWipeLocalAuthState();
+      wipedOnLaunch = true;
+    } else {
+      wipedOnLaunch = await applyOneTimeClientAuthEpochWipe();
+      if (wipedOnLaunch && __DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn('[Liveline] One-time client auth epoch wipe ran (see services/authWipe.ts).');
+      }
+    }
+    if (wipedOnLaunch) {
+      set({ user: null, session: null, isLoading: false });
+    }
+
     if (!supabaseAuthListenerRegistered) {
       supabaseAuthListenerRegistered = true;
       supabase.auth.onAuthStateChange(async (event, session) => {

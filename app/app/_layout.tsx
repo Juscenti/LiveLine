@@ -6,7 +6,8 @@ import { LogBox } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/queryClient';
 import { useAuthStore } from '@/stores/authStore';
 
 if (__DEV__ && process.env.EXPO_PUBLIC_VERBOSE_NETWORK_LOGS !== 'true') {
@@ -14,12 +15,6 @@ if (__DEV__ && process.env.EXPO_PUBLIC_VERBOSE_NETWORK_LOGS !== 'true') {
   // Set EXPO_PUBLIC_VERBOSE_NETWORK_LOGS=true to surface these in LogBox.
   LogBox.ignoreLogs(['Network request failed', 'AuthRetryableFetchError']);
 }
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 1000 * 60, retry: 1 },
-  },
-});
 
 export default function RootLayout() {
   const initialize = useAuthStore((s) => s.initialize);

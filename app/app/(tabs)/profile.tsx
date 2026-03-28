@@ -429,7 +429,7 @@ export default function ProfileScreen() {
   const user = useAuthStore((s) => s.user);
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const friendsCount = useFriendsInboxStore((s) => s.friends.length);
-  const { nowPlaying, syncNowPlaying, connectedPlatforms } = useMusicStore();
+  const { nowPlaying, connectedPlatforms } = useMusicStore();
   const spotifyConnected = useMemo(() => connectedPlatforms.includes('spotify'), [connectedPlatforms]);
   const [posts, setPosts] = useState<Post[]>([]);
 
@@ -458,8 +458,8 @@ export default function ProfileScreen() {
     useCallback(() => {
       void refreshUser();
       void useFriendsInboxStore.getState().fetch({ withSpinner: false, silent: true });
-      void syncNowPlaying();
-    }, [refreshUser, syncNowPlaying]),
+      // Music poll runs from tabs layout (MUSIC.SYNC_INTERVAL_MS); avoid extra /music/sync on every tab focus.
+    }, [refreshUser]),
   );
 
   const bottomPad = TAB_BAR.height + TAB_BAR.bottomGap + insets.bottom + SPACING.lg;

@@ -2,7 +2,9 @@
 // src/index.ts — Express server entry point
 // ============================================================
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import express from 'express';
+import type { Request } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -72,11 +74,27 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Tunnel / carrier NAT puts many clients behind one IP — bucket by JWT when present
+ * so each logged-in user gets their own quota (still IP-based for anonymous calls).
+ */
+function apiRateLimitKey(req: Request): string {
+  const raw = req.headers.authorization;
+  if (typeof raw === 'string' && raw.startsWith('Bearer ')) {
+    const token = raw.slice(7).trim();
+    if (token.length > 20) {
+      return crypto.createHash('sha256').update(token).digest('hex');
+    }
+  }
+  return req.ip ?? 'unknown';
+}
+
 const limiter = rateLimit({
   windowMs: rateLimitNumber(process.env.RATE_LIMIT_WINDOW_MS, 900_000),
   max: rateLimitNumber(process.env.RATE_LIMIT_MAX, 800),
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => apiRateLimitKey(req),
 });
 
 app.use((req, res, next) => {
