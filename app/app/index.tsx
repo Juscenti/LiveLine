@@ -21,6 +21,6 @@ export default function Index() {
     return <Redirect href="/(auth)/login" />;
   }
 
-  // Session is enough to enter the app; profile loads via /auth/me retries + refreshUser.
+  // Session is restored from SecureStore; startup waits for /auth/me before isInitialized (see authStore).
   return <Redirect href="/(tabs)/feed" />;
 }

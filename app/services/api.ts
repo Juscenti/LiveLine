@@ -107,18 +107,26 @@ api.interceptors.response.use(
       url.includes('/auth/register') ||
       url.includes('/auth/login');
 
-    if (
-      status !== 401 ||
-      !original ||
-      original._retryAfterAuth ||
-      isAuthFree
-    ) {
+    if (status !== 401 || !original || isAuthFree) {
+      return Promise.reject(err);
+    }
+
+    // Refresh did not help, or we already retried — local session is invalid (e.g. Supabase reset).
+    if (original._retryAfterAuth) {
+      void import('@/stores/authStore').then(({ useAuthStore }) => {
+        void useAuthStore.getState().logout();
+      });
       return Promise.reject(err);
     }
 
     original._retryAfterAuth = true;
     const ok = await applyFreshTokenToRequest(original);
-    if (!ok) return Promise.reject(err);
+    if (!ok) {
+      void import('@/stores/authStore').then(({ useAuthStore }) => {
+        void useAuthStore.getState().logout();
+      });
+      return Promise.reject(err);
+    }
     return api(original);
   },
 );

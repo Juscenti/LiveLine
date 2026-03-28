@@ -2,6 +2,7 @@
 // stores/authStore.ts — Auth state (Zustand)
 // ============================================================
 import { create } from 'zustand';
+import axios from 'axios';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/services/supabase';
 import { authApi, wakeBackend } from '@/services/api';
@@ -14,23 +15,29 @@ import type { User } from '@/types';
 /** Only register Supabase listener once (initialize must not stack listeners on re-entry). */
 let supabaseAuthListenerRegistered = false;
 
-/** Cold Render / flaky Wi‑Fi — bounded retries; does not stack with UI-level refresh calls. */
-async function fetchMeWithRetry(maxAttempts = 5): Promise<User | null> {
+/**
+ * Cold start / flaky Wi‑Fi — bounded retries.
+ * `staleSession`: JWT rejected by the API (e.g. Supabase project reset, user deleted) — clear local session.
+ */
+async function fetchMeWithRetry(maxAttempts = 5): Promise<{ user: User | null; staleSession: boolean }> {
   let last: User | null = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const res = await authApi.me();
       const body = res?.data as { data?: User } | undefined;
       last = body?.data ?? null;
-      if (last) return last;
-    } catch {
+      if (last) return { user: last, staleSession: false };
+    } catch (e) {
       last = null;
+      if (axios.isAxiosError(e) && e.response?.status === 401) {
+        return { user: null, staleSession: true };
+      }
     }
     if (attempt < maxAttempts - 1) {
       await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
     }
   }
-  return last;
+  return { user: last, staleSession: false };
 }
 
 const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
@@ -85,10 +92,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (session?.access_token) setAccessToken(session.access_token);
 
         if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
-          const res = await authApi.me().catch(() => null);
-          const prev = get().user;
-          const u = (res?.data as { data?: User } | undefined)?.data;
-          set({ user: u ?? prev });
+          try {
+            const res = await authApi.me();
+            const prev = get().user;
+            const u = (res?.data as { data?: User } | undefined)?.data;
+            set({ user: u ?? prev });
+          } catch (e) {
+            if (axios.isAxiosError(e) && e.response?.status === 401) {
+              await get().logout();
+            }
+          }
         }
       });
     }
@@ -98,12 +111,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (session?.access_token) setAccessToken(session.access_token);
       if (session) {
         set({ session, user: get().user });
-        set({ isInitialized: true });
 
         void (async () => {
-          await wakeBackend().catch(() => {});
-          const user = await fetchMeWithRetry(5);
-          set({ user: user ?? get().user });
+          try {
+            await wakeBackend().catch(() => {});
+            const { user, staleSession } = await fetchMeWithRetry(5);
+            if (staleSession) {
+              await get().logout();
+            } else {
+              set({ user: user ?? get().user });
+            }
+          } finally {
+            set({ isInitialized: true });
+          }
         })();
       } else {
         clearAccessToken();
@@ -199,8 +219,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setUser: (user) => set({ user }),
 
   refreshUser: async () => {
-    const res = await authApi.me().catch(() => null);
-    const u = (res?.data as { data?: User } | undefined)?.data;
-    if (u) set({ user: u });
+    try {
+      const res = await authApi.me();
+      const u = (res?.data as { data?: User } | undefined)?.data;
+      if (u) set({ user: u });
+    } catch (e) {
+      if (axios.isAxiosError(e) && e.response?.status === 401) {
+        await get().logout();
+      }
+    }
   },
 }));
