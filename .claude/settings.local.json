@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -Command \"\\(Get-Content 'C:\\\\Users\\\\kuane\\\\OneDrive\\\\Desktop\\\\personal projects\\\\liveline\\\\app\\\\app\\\\\\(tabs\\)\\\\profile.tsx' -Raw -Encoding UTF8\\) -replace '\\\\u2018|\\\\u2019', '''' -replace '\\\\u201C|\\\\u201D', '\\\\\"' | Set-Content 'C:\\\\Users\\\\kuane\\\\OneDrive\\\\Desktop\\\\personal projects\\\\liveline\\\\app\\\\app\\\\\\(tabs\\)\\\\profile.tsx' -Encoding UTF8 -NoNewline\")"
+    ]
+  }
+}

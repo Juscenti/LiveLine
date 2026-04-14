@@ -12,11 +12,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthStore } from '@/stores/authStore';
-import { useMusicStore, type SpotifySyncIssue } from '@/stores/musicStore';
+import { useMusicStore } from '@/stores/musicStore';
 import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 import { postsApi } from '@/services/api';
 import { COLORS, SPACING, FONTS, RADIUS, TAB_BAR, FEED } from '@/constants';
-import ProfileMusicSection from '@/components/music/ProfileMusicSection';
 import PostThumb from '@/components/feed/PostThumb';
 import type { Post } from '@/types';
 
@@ -53,7 +52,6 @@ function ProfileHeader({
   posts,
   nowPlaying,
   spotifyConnected,
-  spotifySelfHint,
   friendsCount,
   totalLikes,
 }: {
@@ -61,7 +59,6 @@ function ProfileHeader({
   posts: Post[];
   nowPlaying: any;
   spotifyConnected: boolean;
-  spotifySelfHint: SpotifySyncIssue;
   friendsCount: number;
   totalLikes: number;
 }) {
@@ -74,6 +71,8 @@ function ProfileHeader({
       Animated.spring(slideAnim, { toValue: 0, tension: 80, friction: 14, useNativeDriver: true }),
     ]).start();
   }, []);
+
+  const isPlaying = !!(nowPlaying?.is_currently_playing);
 
   return (
     <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
@@ -91,7 +90,7 @@ function ProfileHeader({
         />
       </View>
 
-      {/* Avatar overlaps banner; actions sit below name for cleaner vertical rhythm */}
+      {/* Avatar overlaps banner */}
       <View style={headerStyles.avatarRow}>
         <View style={headerStyles.avatarRing}>
           {user.profile_picture_url ? (
@@ -106,6 +105,7 @@ function ProfileHeader({
         </View>
       </View>
 
+      {/* Name + bio */}
       <View style={headerStyles.identity}>
         <Text style={headerStyles.displayName} numberOfLines={1}>
           {user.display_name ?? user.username}
@@ -114,34 +114,9 @@ function ProfileHeader({
         {user.bio ? (
           <Text style={headerStyles.bio}>{user.bio}</Text>
         ) : null}
-
-        <ProfileMusicSection
-          track={nowPlaying}
-          spotifyConnected={spotifyConnected}
-          isSelf
-          spotifySelfHint={spotifySelfHint}
-          onPressConnect={() => router.push('/music/connect')}
-        />
-
-        <View style={headerStyles.actions}>
-          <Pressable
-            style={({ pressed }) => [headerStyles.editBtn, pressed && { opacity: 0.75 }]}
-            onPress={() => router.push('/profile/edit')}
-          >
-            <Text style={headerStyles.editBtnText}>Edit profile</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [headerStyles.iconBtn, pressed && { opacity: 0.75 }]}
-            onPress={() => router.push('/settings')}
-            accessibilityRole="button"
-            accessibilityLabel="Settings"
-          >
-            <Ionicons name="settings-outline" size={20} color={COLORS.textPrimary} />
-          </Pressable>
-        </View>
       </View>
 
-      {/* Stats bar — posts count; friends from inbox; likes sum of loaded posts’ like_count */}
+      {/* Stats bar — sits between bio and action buttons */}
       <View style={headerStyles.statsBar}>
         <StatPill value={posts.length} label="Posts" />
         <View style={headerStyles.statDivider} />
@@ -155,6 +130,42 @@ function ProfileHeader({
         </Pressable>
         <View style={headerStyles.statDivider} />
         <StatPill value={totalLikes} label="Likes" />
+      </View>
+
+      {/* Action buttons — Edit profile + icon buttons */}
+      <View style={headerStyles.actions}>
+        <Pressable
+          style={({ pressed }) => [headerStyles.editBtn, pressed && { opacity: 0.75 }]}
+          onPress={() => router.push('/profile/edit')}
+        >
+          <Text style={headerStyles.editBtnText}>Edit profile</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [headerStyles.iconBtn, pressed && { opacity: 0.75 }]}
+          onPress={() => router.push('/settings')}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+        >
+          <Ionicons name="settings-outline" size={20} color={COLORS.textPrimary} />
+        </Pressable>
+        {/* Spotify — compact icon button; green when connected, dot when actively playing */}
+        <Pressable
+          style={({ pressed }) => [
+            headerStyles.iconBtn,
+            spotifyConnected && headerStyles.iconBtnSpotify,
+            pressed && { opacity: 0.75 },
+          ]}
+          onPress={() => router.push('/music/connect')}
+          accessibilityRole="button"
+          accessibilityLabel={spotifyConnected ? 'Spotify connected' : 'Connect Spotify'}
+        >
+          <Ionicons
+            name="musical-note"
+            size={20}
+            color={spotifyConnected ? '#1DB954' : COLORS.textSecondary}
+          />
+          {isPlaying && <View style={headerStyles.playingDot} />}
+        </Pressable>
       </View>
     </Animated.View>
   );
@@ -211,37 +222,6 @@ const headerStyles = StyleSheet.create({
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
   },
-  actions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-    marginTop: SPACING.md,
-    alignItems: 'center',
-  },
-  editBtn: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    borderRadius: RADIUS.full,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: 9,
-    backgroundColor: COLORS.bgElevated,
-  },
-  editBtnText: {
-    color: COLORS.textPrimary,
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.medium,
-  },
-  iconBtn: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    borderRadius: RADIUS.full,
-    width: 42,
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.bgElevated,
-  },
-  statPressable: { flex: 1 },
   identity: {
     paddingHorizontal: SPACING.base,
     paddingTop: SPACING.sm,
@@ -265,7 +245,7 @@ const headerStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: SPACING.base,
-    marginTop: SPACING.xl,
+    marginTop: SPACING.lg,
     paddingVertical: SPACING.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -275,6 +255,52 @@ const headerStyles = StyleSheet.create({
     width: StyleSheet.hairlineWidth,
     height: 28,
     backgroundColor: COLORS.border,
+  },
+  statPressable: { flex: 1 },
+  actions: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+    marginHorizontal: SPACING.base,
+    alignItems: 'center',
+  },
+  editBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 9,
+    backgroundColor: COLORS.bgElevated,
+    alignItems: 'center',
+  },
+  editBtnText: {
+    color: COLORS.textPrimary,
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.medium,
+  },
+  iconBtn: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: RADIUS.full,
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.bgElevated,
+  },
+  iconBtnSpotify: {
+    borderColor: 'rgba(29,185,84,0.35)',
+    backgroundColor: 'rgba(29,185,84,0.08)',
+  },
+  playingDot: {
+    position: 'absolute',
+    top: 7,
+    right: 7,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#1DB954',
   },
 });
 
@@ -437,7 +463,7 @@ export default function ProfileScreen() {
   const user = useAuthStore((s) => s.user);
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const friendsCount = useFriendsInboxStore((s) => s.friends.length);
-  const { nowPlaying, connectedPlatforms, spotifySyncIssue } = useMusicStore();
+  const { nowPlaying, connectedPlatforms } = useMusicStore();
   const spotifyConnected = useMemo(() => connectedPlatforms.includes('spotify'), [connectedPlatforms]);
   const [posts, setPosts] = useState<Post[]>([]);
 
@@ -493,7 +519,6 @@ export default function ProfileScreen() {
         posts={posts}
         nowPlaying={nowPlaying}
         spotifyConnected={spotifyConnected}
-        spotifySelfHint={spotifySyncIssue}
         friendsCount={friendsCount}
         totalLikes={totalLikes}
       />
