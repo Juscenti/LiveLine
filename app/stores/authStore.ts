@@ -21,6 +21,15 @@ import type { User } from '@/types';
 let supabaseAuthListenerRegistered = false;
 
 /**
+ * When login() or register() explicitly calls supabase.auth.setSession(), it fires a
+ * SIGNED_IN event. The listener's authApi.me() call would race against our just-set
+ * session and can 401 on cold backends — triggering an immediate logout. We skip the
+ * listener's authApi.me() for those explicit setSession() calls since we already have
+ * the user from the login/register response.
+ */
+let skipNextSignedInFromExplicitSet = false;
+
+/**
  * Cold start / flaky Wi‑Fi — bounded retries.
  * `staleSession`: JWT rejected by the API (e.g. Supabase project reset, user deleted) — clear local session.
  */
@@ -93,7 +102,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       wipedOnLaunch = await applyOneTimeClientAuthEpochWipe();
       if (wipedOnLaunch && __DEV__) {
         // eslint-disable-next-line no-console
-        console.warn('[Liveline] One-time client auth epoch wipe ran (see services/authWipe.ts).');
+        console.log('[Liveline] One-time client auth epoch wipe ran (see services/authWipe.ts).');
       }
     }
     if (wipedOnLaunch) {
@@ -118,13 +127,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (session?.access_token) setAccessToken(session.access_token);
 
         if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+          // Skip the /auth/me call when we explicitly called setSession() inside
+          // login() or register() — we already have the user from those responses,
+          // and a cold-backend 401 here would incorrectly log the user back out.
+          if (event === 'SIGNED_IN' && skipNextSignedInFromExplicitSet) {
+            skipNextSignedInFromExplicitSet = false;
+            return;
+          }
           try {
             const res = await authApi.me();
             const prev = get().user;
             const u = (res?.data as { data?: User } | undefined)?.data;
             set({ user: u ?? prev });
           } catch (e) {
-            if (axios.isAxiosError(e) && e.response?.status === 401) {
+            // Only force logout for confirmed stale sessions (401 on a
+            // TOKEN_REFRESHED event, not SIGNED_IN — those are session-restore
+            // events where the stored token is legitimately invalid).
+            if (
+              axios.isAxiosError(e) &&
+              e.response?.status === 401 &&
+              event === 'TOKEN_REFRESHED'
+            ) {
               await get().logout();
             }
           }
@@ -177,6 +200,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       setAccessToken(session.access_token);
 
+      // Flag the listener to skip its authApi.me() call — we already have the user
+      // from the login response, and the listener's 401 handling can wrongly log out.
+      skipNextSignedInFromExplicitSet = true;
       await withTimeout(
         supabase.auth.setSession({
           access_token: session.access_token,
@@ -187,8 +213,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       );
 
       const user = resp?.data?.data?.user ?? resp?.data?.user ?? null;
-      set({ user: user ?? null, session });
-      void useFriendsInboxStore.getState().fetch();
+      set({ user: user ?? null, session, isInitialized: true });
+      void useFriendsInboxStore.getState().fetch({ silent: true });
     } finally {
       set({ isLoading: false });
     }
@@ -210,6 +236,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       setAccessToken(session.access_token);
 
+      // Flag the listener to skip its authApi.me() call — we already have the user
+      // from the register response, and the listener's 401 handling can wrongly log out.
+      skipNextSignedInFromExplicitSet = true;
       await withTimeout(
         supabase.auth.setSession({
           access_token: session.access_token,
@@ -220,8 +249,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       );
 
       const user = resp?.data?.data?.user ?? resp?.data?.user ?? null;
-      set({ user: user ?? null, session });
-      void useFriendsInboxStore.getState().fetch();
+      set({ user: user ?? null, session, isInitialized: true });
+      void useFriendsInboxStore.getState().fetch({ silent: true });
     } finally {
       set({ isLoading: false });
     }

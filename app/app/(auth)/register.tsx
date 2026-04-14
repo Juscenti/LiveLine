@@ -39,6 +39,10 @@ export default function RegisterScreen() {
           ]);
           return;
         }
+        if (code === 'USERNAME_TAKEN') {
+          Alert.alert('Username taken', 'That username is already in use. Try another.');
+          return;
+        }
       }
       Alert.alert('Registration failed', formatApiError(e));
     } finally {

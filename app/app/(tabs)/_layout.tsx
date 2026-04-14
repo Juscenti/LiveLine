@@ -231,7 +231,7 @@ function FriendsInboxPrefetch() {
       useFriendsInboxStore.getState().clear();
       return;
     }
-    void useFriendsInboxStore.getState().fetch();
+    void useFriendsInboxStore.getState().fetch({ silent: true });
   }, [session?.access_token]);
 
   return null;

@@ -204,7 +204,20 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
       if (photo) {
-        setPreview({ uri: photo.uri, type: 'image', width: photo.width, height: photo.height });
+        let { uri, width, height } = photo;
+        // Front camera photos are saved mirrored on iOS (matching the mirrored preview).
+        // Flip horizontally so the final image matches how others see the subject.
+        if (facing === 'front') {
+          const unmirrored = await ImageManipulator.manipulateAsync(
+            uri,
+            [{ flip: ImageManipulator.FlipType.Horizontal }],
+            { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
+          );
+          uri = unmirrored.uri;
+          width = unmirrored.width;
+          height = unmirrored.height;
+        }
+        setPreview({ uri, type: 'image', width, height });
       }
     } catch (e: unknown) {
       Alert.alert("Couldn't capture photo", String((e as Error)?.message ?? e));
@@ -433,6 +446,7 @@ export default function CameraScreen() {
     <View style={styles.flex} {...pinchResponder.panHandlers}>
       {/* Full-screen viewfinder */}
       <CameraView
+        key={facing}
         ref={cameraRef}
         style={StyleSheet.absoluteFillObject}
         facing={facing}

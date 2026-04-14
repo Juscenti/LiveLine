@@ -15,7 +15,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  UIManager,
   View,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
@@ -43,10 +42,6 @@ import type { UserLike } from '@/utils/userDisplay';
 import { getDisplayName, formatUserHandle } from '@/utils/userDisplay';
 
 dayjs.extend(relativeTime);
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 type FriendStatus =
   | 'none'

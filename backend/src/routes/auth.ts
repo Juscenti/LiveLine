@@ -77,16 +77,27 @@ export async function register(req: Request, res: Response) {
     return res.status(500).json({ error: 'Account created but profile row could not be created', data: null });
   }
 
+  // Update username and email on the profile row we just ensured exists.
+  // Use upsert-style: if the username column update fails due to a uniqueness race,
+  // surface it clearly rather than proceeding with a mismatched username.
   const { error: updErr } = await supabaseAdmin
     .from('users')
     .update({ username: username.toLowerCase(), email: email.toLowerCase() })
     .eq('auth_id', authData.user.id);
 
   if (updErr) {
+    // Username uniqueness violation (race between check and update)
+    if (updErr.code === '23505' && updErr.message?.toLowerCase().includes('username')) {
+      return res.status(409).json({
+        error: 'That username was just taken. Pick another.',
+        code: 'USERNAME_TAKEN',
+        data: null,
+      });
+    }
     return res.status(500).json({ error: updErr.message ?? 'Could not set profile username', data: null });
   }
 
-  // Sign in immediately so the client can create a session without using the (anon) client key.
+  // Sign in immediately so the client can create a session without a round-trip.
   const { data: signInData, error: signInErr } = await supabaseAdmin.auth.signInWithPassword({
     email,
     password,
@@ -96,11 +107,12 @@ export async function register(req: Request, res: Response) {
     return res.status(400).json({ error: signInErr?.message ?? 'Registration succeeded but sign-in failed', data: null });
   }
 
+  // Fetch the full profile — using auth_id so we match even if `id` differs.
   const { data: profile, error: profileErr } = await supabaseAdmin
     .from('users')
     .select('*')
     .eq('auth_id', signInData.user.id)
-    .single();
+    .maybeSingle();
 
   if (profileErr || !profile) {
     return res.status(500).json({ error: 'Account created but profile row is missing', data: null });
@@ -131,8 +143,8 @@ export async function login(req: Request, res: Response) {
   const { data: profile, error: profileErr } = await supabaseAdmin
     .from('users')
     .select('*')
-    .eq('id', row.id)
-    .single();
+    .eq('auth_id', data.user.id)
+    .maybeSingle();
 
   if (profileErr || !profile) {
     return res.status(500).json({ error: 'User profile not found', data: null });
