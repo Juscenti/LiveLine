@@ -174,6 +174,7 @@ export const postsApi = {
     api.delete(`/posts/${postId}/comments/${commentId}`),
   getUserPosts: (userId: string, cursor?: string) =>
     api.get(`/users/${userId}/posts`, { params: { cursor } }),
+  getWeeklyRecap: () => api.get('/posts/weekly-recap'),
 };
 
 export const friendsApi = {

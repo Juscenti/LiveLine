@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFeedStore } from '@/stores/feedStore';
 import { COLORS, SPACING, FONTS, FEED, FEED_PLAY_ZONE, computeFeedPlayZoneLayout } from '@/constants';
 import PostCard from '@/components/feed/PostCard';
+import WeeklyRecap from '@/components/feed/WeeklyRecap';
 import type { FeedPost } from '@/types';
 import { useResponsive } from '@/utils/responsive';
 
@@ -379,6 +380,7 @@ export default function FeedScreen() {
               styles.listContent,
               { paddingBottom: bottomPad, width: innerWidth },
             ]}
+            ListHeaderComponent={<WeeklyRecap />}
             onEndReached={loadMore}
             onEndReachedThreshold={0.8}
             refreshControl={

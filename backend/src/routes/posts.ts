@@ -9,6 +9,7 @@ import { mediaService } from '../services/mediaService';
 const router = Router();
 
 router.get('/feed', requireAuth, getFeed);
+router.get('/weekly-recap', requireAuth, getWeeklyRecap);
 router.get('/:postId', requireAuth, getPost);
 router.post('/', requireAuth, upload.single('media'), createPost);
 router.delete('/:postId', requireAuth, deletePost);
@@ -114,7 +115,7 @@ export async function createPost(req: AuthRequest, res: Response) {
     caption: caption ?? null,
     visibility,
     music_id: music_id ?? null,
-    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   };
 
   const db = createSupabaseUserClient(req.accessToken!);
@@ -287,6 +288,46 @@ export async function deleteComment(req: AuthRequest, res: Response) {
     .eq('user_id', req.userId);
 
   return res.json({ data: { deleted: true }, error: null });
+}
+
+export async function getWeeklyRecap(req: AuthRequest, res: Response) {
+  // Compute Sunday 00:00:00 of the current calendar week
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay()); // back to Sunday
+  startOfWeek.setHours(0, 0, 0, 0);
+
+  // Collect accepted friend IDs from both directions
+  const [{ data: outgoing }, { data: incoming }] = await Promise.all([
+    supabaseAdmin
+      .from('friendships')
+      .select('addressee_id')
+      .eq('requester_id', req.userId)
+      .eq('status', 'accepted'),
+    supabaseAdmin
+      .from('friendships')
+      .select('requester_id')
+      .eq('addressee_id', req.userId)
+      .eq('status', 'accepted'),
+  ]);
+
+  const friendIds: string[] = [
+    ...(outgoing ?? []).map((r: any) => r.addressee_id as string),
+    ...(incoming ?? []).map((r: any) => r.requester_id as string),
+    req.userId!, // include own posts
+  ];
+
+  const { data, error } = await supabaseAdmin
+    .from('posts')
+    .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
+    .in('user_id', friendIds)
+    .gte('created_at', startOfWeek.toISOString())
+    .neq('is_deleted', true)
+    .order('created_at', { ascending: false })
+    .limit(60);
+
+  if (error) return res.status(500).json({ error: error.message, data: null });
+  return res.json({ data: data ?? [], error: null });
 }
 
 export default router;
