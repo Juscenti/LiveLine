@@ -17,7 +17,8 @@ BEGIN
         LOWER(REGEXP_REPLACE(SPLIT_PART(NEW.email, '@', 1), '[^a-z0-9_]', '', 'g'))
             || '_' || SUBSTR(MD5(RANDOM()::TEXT), 1, 4),
         SPLIT_PART(NEW.email, '@', 1)
-    );
+    )
+    ON CONFLICT (auth_id) DO NOTHING;  -- backend may have already created the row
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

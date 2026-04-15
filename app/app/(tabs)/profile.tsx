@@ -472,16 +472,26 @@ export default function ProfileScreen() {
     [posts],
   );
 
-  useEffect(() => {
+  const fetchPosts = useCallback(() => {
     if (!user?.id) return;
     postsApi
       .getUserPosts(user.id)
-      .then(({ data }) => setPosts(Array.isArray(data?.data) ? data.data : []))
-      .catch(() => setPosts([]));
+      .then(({ data }) => {
+        const rows = Array.isArray(data?.data) ? data.data : [];
+        // Only update if we got actual data — don't wipe existing posts on transient errors
+        setPosts(rows);
+      })
+      .catch(() => {
+        // Keep existing posts if the request fails (backend may be cold-starting)
+      });
   }, [user?.id]);
 
-  // Warm up profile-related data as soon as the tabs layout mounts (so switching tabs
-  // doesn't wait on network round-trips). UI will still show loaders if user is not ready.
+  // Initial load when user id becomes available
+  useEffect(() => {
+    fetchPosts();
+  }, [fetchPosts]);
+
+  // Warm up profile-related data as soon as the tabs layout mounts
   useEffect(() => {
     if (!user?.id) return;
     void refreshUser();
@@ -491,9 +501,10 @@ export default function ProfileScreen() {
   useFocusEffect(
     useCallback(() => {
       void refreshUser();
+      fetchPosts();
       void useFriendsInboxStore.getState().fetch({ withSpinner: false, silent: true });
       // Music poll runs from tabs layout (MUSIC.SYNC_INTERVAL_MS); avoid extra /music/sync on every tab focus.
-    }, [refreshUser]),
+    }, [refreshUser, fetchPosts]),
   );
 
   const bottomPad = TAB_BAR.height + TAB_BAR.bottomGap + insets.bottom + SPACING.lg;

@@ -139,17 +139,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             const prev = get().user;
             const u = (res?.data as { data?: User } | undefined)?.data;
             set({ user: u ?? prev });
-          } catch (e) {
-            // Only force logout for confirmed stale sessions (401 on a
-            // TOKEN_REFRESHED event, not SIGNED_IN — those are session-restore
-            // events where the stored token is legitimately invalid).
-            if (
-              axios.isAxiosError(e) &&
-              e.response?.status === 401 &&
-              event === 'TOKEN_REFRESHED'
-            ) {
-              await get().logout();
-            }
+          } catch {
+            // Don't logout here — backend 401 on TOKEN_REFRESHED can be a
+            // transient cold-start failure, not a genuinely expired session.
+            // Supabase fires SIGNED_OUT when the refresh token is actually dead.
           }
         }
       });
@@ -278,10 +271,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const res = await authApi.me();
       const u = (res?.data as { data?: User } | undefined)?.data;
       if (u) set({ user: u });
-    } catch (e) {
-      if (axios.isAxiosError(e) && e.response?.status === 401) {
-        await get().logout();
-      }
+    } catch {
+      // Don't logout on a backend error — the Supabase session may still be
+      // valid and the backend could be cold-starting. Supabase fires SIGNED_OUT
+      // when the refresh token is genuinely gone; trust that event instead.
     }
   },
 }));

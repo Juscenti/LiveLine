@@ -111,17 +111,27 @@ api.interceptors.response.use(
       return Promise.reject(err);
     }
 
-    // Refresh did not help, or we already retried — local session is invalid (e.g. Supabase reset).
+    // Refresh did not help, or we already retried.
+    // Only logout if Supabase itself says the session is gone — a backend 401
+    // can be a transient cold-start failure while the Supabase session is fine.
     if (original._retryAfterAuth) {
-      void import('@/stores/authStore').then(({ useAuthStore }) => {
-        void useAuthStore.getState().logout();
-      });
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          void import('@/stores/authStore').then(({ useAuthStore }) => {
+            void useAuthStore.getState().logout();
+          });
+        }
+      } catch {
+        // Can't verify — don't logout; Supabase will fire SIGNED_OUT if needed
+      }
       return Promise.reject(err);
     }
 
     original._retryAfterAuth = true;
     const ok = await applyFreshTokenToRequest(original);
     if (!ok) {
+      // Supabase itself couldn't refresh — the session is truly gone
       void import('@/stores/authStore').then(({ useAuthStore }) => {
         void useAuthStore.getState().logout();
       });
