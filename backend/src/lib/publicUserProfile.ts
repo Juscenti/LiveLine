@@ -32,12 +32,14 @@ function displayNameFromEmail(email: string): string {
  * Returns public.users.id for this auth user, inserting a row if missing.
  */
 export async function getOrCreatePublicUserProfile(authUser: User): Promise<{ id: string } | null> {
-  const { data: existing } = await supabaseAdmin
+  const { data: existingRows } = await supabaseAdmin
     .from('users')
     .select('id')
     .eq('auth_id', authUser.id)
-    .maybeSingle();
+    .order('created_at', { ascending: true })
+    .limit(1);
 
+  const existing = existingRows?.[0] ?? null;
   if (existing?.id) return { id: existing.id };
 
   const email = (authUser.email ?? '').trim().toLowerCase();
@@ -60,12 +62,14 @@ export async function getOrCreatePublicUserProfile(authUser: User): Promise<{ id
 
     if (!error && inserted?.id) return { id: inserted.id };
 
-    // Race: peer request inserted same auth_id
-    const { data: raced } = await supabaseAdmin
+    // Race: peer request inserted same auth_id — return the oldest row
+    const { data: racedRows } = await supabaseAdmin
       .from('users')
       .select('id')
       .eq('auth_id', authUser.id)
-      .maybeSingle();
+      .order('created_at', { ascending: true })
+      .limit(1);
+    const raced = racedRows?.[0] ?? null;
     if (raced?.id) return { id: raced.id };
 
     // Username collision — retry with new suffix

@@ -107,11 +107,11 @@ export async function register(req: Request, res: Response) {
     return res.status(400).json({ error: signInErr?.message ?? 'Registration succeeded but sign-in failed', data: null });
   }
 
-  // Fetch the full profile — using auth_id so we match even if `id` differs.
+  // Fetch the full profile — use ensured.id (the canonical public users.id) for determinism.
   const { data: profile, error: profileErr } = await supabaseAdmin
     .from('users')
     .select('*')
-    .eq('auth_id', signInData.user.id)
+    .eq('id', ensured.id)
     .maybeSingle();
 
   if (profileErr || !profile) {
@@ -143,7 +143,7 @@ export async function login(req: Request, res: Response) {
   const { data: profile, error: profileErr } = await supabaseAdmin
     .from('users')
     .select('*')
-    .eq('auth_id', data.user.id)
+    .eq('id', row.id)
     .maybeSingle();
 
   if (profileErr || !profile) {
