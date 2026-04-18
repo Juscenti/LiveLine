@@ -132,7 +132,18 @@ export default function PostDetailScreen() {
   };
 
   const toggleLike = () => {
-    post.user_has_liked ? unlikePost(post.id) : likePost(post.id);
+    const liked = post.user_has_liked;
+    // Optimistic local update for deep-linked posts not in the feed store
+    setPost((p) =>
+      p
+        ? {
+            ...p,
+            user_has_liked: !liked,
+            like_count: Math.max(0, p.like_count + (liked ? -1 : 1)),
+          }
+        : p,
+    );
+    liked ? unlikePost(post.id) : likePost(post.id);
   };
 
   const isOwner =
@@ -268,9 +279,17 @@ export default function PostDetailScreen() {
           onPress={() => router.push(`/profile/${post.user_id}`)}
         >
           <View style={styles.authorAvatar}>
-            <Text style={styles.authorInitial}>
-              {(post.author?.display_name ?? post.author?.username ?? '?')[0].toUpperCase()}
-            </Text>
+            {post.author?.profile_picture_url ? (
+              <Image
+                source={{ uri: post.author.profile_picture_url }}
+                style={{ width: 38, height: 38, borderRadius: 19 }}
+                contentFit="cover"
+              />
+            ) : (
+              <Text style={styles.authorInitial}>
+                {(post.author?.display_name ?? post.author?.username ?? '?')[0].toUpperCase()}
+              </Text>
+            )}
           </View>
           <View>
             <Text style={styles.authorName}>{post.author?.display_name ?? post.author?.username}</Text>

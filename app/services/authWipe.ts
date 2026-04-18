@@ -11,6 +11,8 @@ import { supabase, supabaseAuthStorageKeysForWipe } from '@/services/supabase';
 import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 import { useMusicStore } from '@/stores/musicStore';
 import { useNotificationStore } from '@/stores/notificationStore';
+import { useFeedStore } from '@/stores/feedStore';
+import { useMapStore } from '@/stores/mapStore';
 
 function scrubWebLocalStorageAuthKeys() {
   if (Platform.OS !== 'web' || typeof localStorage === 'undefined') return;
@@ -113,6 +115,8 @@ export async function nuclearWipeLocalAuthState(): Promise<void> {
   useFriendsInboxStore.getState().clear();
   useMusicStore.getState().resetMusicSession();
   useNotificationStore.getState().reset();
+  useFeedStore.getState().reset();
+  useMapStore.getState().resetMapSession();
 
   queryClient.clear();
 }

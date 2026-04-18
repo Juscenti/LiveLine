@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { createSupabaseUserClient, supabaseAdmin } from '../config/supabase';
+import { supabaseAdmin } from '../config/supabase';
 import { requireAuth } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 
@@ -24,15 +24,7 @@ router.post('/location', requireAuth, async (req: AuthRequest, res: Response) =>
     vis = v.data;
   }
 
-  // IMPORTANT:
-  // `upsert_user_location` ultimately writes to `public.locations`.
-  // Your RLS policies for locations use `auth.uid()`, which depends on the caller JWT.
-  // Using supabaseAdmin (service role) bypasses RLS for queries, but your policies are still
-  // being enforced for the function insert/update. Use a user-scoped client instead.
-  const accessToken = req.accessToken;
-  const userSupabase = accessToken ? createSupabaseUserClient(accessToken) : supabaseAdmin;
-
-  const { error } = await userSupabase.rpc('upsert_user_location', {
+  const { error } = await supabaseAdmin.rpc('upsert_user_location', {
     p_user_id: req.userId,
     p_latitude: lat,
     p_longitude: lng,

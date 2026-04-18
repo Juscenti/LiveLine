@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { supabaseAdmin, createSupabaseUserClient } from '../config/supabase';
+import { supabaseAdmin } from '../config/supabase';
 import { requireAuth, upload } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 import { mediaService } from '../services/mediaService';
@@ -33,7 +33,7 @@ function isMissingPostsDimensionColumns(error: { message?: string; code?: string
 export async function getFeed(req: AuthRequest, res: Response) {
   const cursor = req.query.cursor as string | undefined;
 
-  const { data, error } = await supabaseAdmin.rpc('get_friend_feed', {
+  const { data: rpcData, error } = await supabaseAdmin.rpc('get_friend_feed', {
     p_user_id: req.userId,
     p_limit: 20,
     ...(cursor ? { p_cursor: cursor } : {}),
@@ -41,10 +41,8 @@ export async function getFeed(req: AuthRequest, res: Response) {
 
   if (error) return res.status(500).json({ error: error.message, data: null });
 
-  const lastPost = data?.[data.length - 1];
-
   // RPC returns `post_id` + `author_id`; frontend expects `id` + `user_id` and nested `author`.
-  const mapped = (data ?? []).map((row: any) => ({
+  const rpcMapped = (rpcData ?? []).map((row: any) => ({
     ...row,
     id: row.post_id,
     user_id: row.author_id,
@@ -56,10 +54,32 @@ export async function getFeed(req: AuthRequest, res: Response) {
     },
   }));
 
+  // Always include the user's own posts so new users (who have no friends yet)
+  // can see content they create. Deduplicate in case the RPC already returns them.
+  let ownQuery = supabaseAdmin
+    .from('posts')
+    .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
+    .eq('user_id', req.userId!)
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (cursor) ownQuery = ownQuery.lt('created_at', cursor);
+  const { data: ownData } = await ownQuery;
+
+  const rpcIds = new Set(rpcMapped.map((p: any) => p.id as string));
+  const ownMapped = (ownData ?? []).filter((p: any) => !rpcIds.has(p.id as string));
+
+  const merged = [...rpcMapped, ...ownMapped].sort(
+    (a: any, b: any) =>
+      new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime(),
+  );
+
+  const lastPost = merged[merged.length - 1];
+
   return res.json({
-    data: mapped,
-    cursor: lastPost?.created_at ?? null,
-    has_more: (data?.length ?? 0) === 20,
+    data: merged,
+    cursor: (lastPost as any)?.created_at ?? null,
+    has_more: (rpcData?.length ?? 0) === 20 || (ownData?.length ?? 0) === 20,
     error: null,
   });
 }
@@ -118,9 +138,7 @@ export async function createPost(req: AuthRequest, res: Response) {
     expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   };
 
-  const db = createSupabaseUserClient(req.accessToken!);
-
-  let { data, error } = await db
+  let { data, error } = await supabaseAdmin
     .from('posts')
     .insert({
       ...rowBase,
@@ -132,7 +150,7 @@ export async function createPost(req: AuthRequest, res: Response) {
 
   // Older DBs without migration 15_post_media_dimensions.sql — retry without dimension columns.
   if (error && isMissingPostsDimensionColumns(error)) {
-    ({ data, error } = await db
+    ({ data, error } = await supabaseAdmin
       .from('posts')
       .insert(rowBase)
       .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
@@ -172,9 +190,7 @@ export async function deletePost(req: AuthRequest, res: Response) {
 export async function likePost(req: AuthRequest, res: Response) {
   const { postId } = req.params;
 
-  const db = createSupabaseUserClient(req.accessToken!);
-
-  const { error } = await db
+  const { error } = await supabaseAdmin
     .from('post_likes')
     .insert({ post_id: postId, user_id: req.userId });
 
@@ -188,8 +204,7 @@ export async function likePost(req: AuthRequest, res: Response) {
 
 export async function unlikePost(req: AuthRequest, res: Response) {
   const { postId } = req.params;
-  const db = createSupabaseUserClient(req.accessToken!);
-  await db
+  await supabaseAdmin
     .from('post_likes')
     .delete()
     .eq('post_id', postId)
@@ -200,8 +215,7 @@ export async function unlikePost(req: AuthRequest, res: Response) {
 
 export async function recordView(req: AuthRequest, res: Response) {
   const { postId } = req.params;
-  const db = createSupabaseUserClient(req.accessToken!);
-  const { error } = await db.from('post_views').insert({ post_id: postId, viewer_id: req.userId });
+  const { error } = await supabaseAdmin.from('post_views').insert({ post_id: postId, viewer_id: req.userId });
   // Best-effort: RLS or duplicate views should not surface as 5xx to the client.
   if (error && process.env.NODE_ENV !== 'production') {
     console.warn('[recordView]', postId, error.message);
@@ -211,9 +225,8 @@ export async function recordView(req: AuthRequest, res: Response) {
 
 export async function getComments(req: AuthRequest, res: Response) {
   const { postId } = req.params;
-  const db = createSupabaseUserClient(req.accessToken!);
 
-  const { data, error } = await db
+  const { data, error } = await supabaseAdmin
     .from('post_comments')
     .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
     .eq('post_id', postId)
@@ -222,7 +235,7 @@ export async function getComments(req: AuthRequest, res: Response) {
 
   if (error) return res.status(500).json({ error: error.message, data: null });
   if (!data?.length) {
-    const { data: canSee } = await db.from('posts').select('id').eq('id', postId).maybeSingle();
+    const { data: canSee } = await supabaseAdmin.from('posts').select('id').eq('id', postId).maybeSingle();
     if (!canSee) return res.status(404).json({ error: 'Post not found', data: null });
   }
   return res.json({ data: data ?? [], error: null });
@@ -230,9 +243,8 @@ export async function getComments(req: AuthRequest, res: Response) {
 
 export async function getPost(req: AuthRequest, res: Response) {
   const { postId } = req.params;
-  const db = createSupabaseUserClient(req.accessToken!);
 
-  const { data: post, error } = await db
+  const { data: post, error } = await supabaseAdmin
     .from('posts')
     .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
     .eq('id', postId)
@@ -241,7 +253,7 @@ export async function getPost(req: AuthRequest, res: Response) {
 
   if (error || !post) return res.status(404).json({ error: 'Post not found', data: null });
 
-  const { data: likeRow } = await db
+  const { data: likeRow } = await supabaseAdmin
     .from('post_likes')
     .select('id')
     .eq('post_id', postId)
@@ -264,9 +276,7 @@ export async function addComment(req: AuthRequest, res: Response) {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid comment', data: null });
 
-  const db = createSupabaseUserClient(req.accessToken!);
-
-  const { data, error } = await db
+  const { data, error } = await supabaseAdmin
     .from('post_comments')
     .insert({ post_id: postId, user_id: req.userId, body: parsed.data.body })
     .select('*, author:users!user_id(id, username, display_name, profile_picture_url)')
@@ -279,8 +289,7 @@ export async function addComment(req: AuthRequest, res: Response) {
 export async function deleteComment(req: AuthRequest, res: Response) {
   const { postId, commentId } = req.params;
 
-  const db = createSupabaseUserClient(req.accessToken!);
-  await db
+  await supabaseAdmin
     .from('post_comments')
     .update({ is_deleted: true })
     .eq('id', commentId)

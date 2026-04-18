@@ -9,6 +9,8 @@ import { formatApiError } from '@/utils/apiErrors';
 
 /** Single flight; avoids duplicate /friends calls when tabs prefetch + screen mounts. */
 let fetchInFlight: Promise<void> | null = null;
+/** Bumped on clear() so any in-flight fetch from a previous user doesn't write into the new session. */
+let clearGeneration = 0;
 
 export type FriendsInboxFetchOpts = {
   /**
@@ -52,6 +54,7 @@ export const useFriendsInboxStore = create<FriendsInboxState>((set, get) => ({
       set({ loading: true });
     }
 
+    const generation = clearGeneration;
     fetchInFlight = (async () => {
       try {
         const [friendsRes, requestsRes, outgoingRes] = await Promise.all([
@@ -60,18 +63,22 @@ export const useFriendsInboxStore = create<FriendsInboxState>((set, get) => ({
           friendsApi.getOutgoing(),
         ]);
 
-        set({
-          friends: friendsRes.data.data ?? friendsRes.data ?? [],
-          requests: requestsRes.data.data ?? requestsRes.data ?? [],
-          outgoing: outgoingRes.data.data ?? outgoingRes.data ?? [],
-        });
+        if (clearGeneration === generation) {
+          set({
+            friends: friendsRes.data.data ?? friendsRes.data ?? [],
+            requests: requestsRes.data.data ?? requestsRes.data ?? [],
+            outgoing: outgoingRes.data.data ?? outgoingRes.data ?? [],
+          });
+        }
       } catch (e: unknown) {
-        if (!opts?.silent) {
+        if (clearGeneration === generation && !opts?.silent) {
           Alert.alert('Failed to load', formatApiError(e));
         }
       } finally {
-        set({ loading: false });
-        fetchInFlight = null;
+        if (clearGeneration === generation) {
+          set({ loading: false });
+          fetchInFlight = null;
+        }
       }
     })();
 
@@ -79,6 +86,7 @@ export const useFriendsInboxStore = create<FriendsInboxState>((set, get) => ({
   },
 
   clear: () => {
+    clearGeneration++;
     fetchInFlight = null;
     set({ friends: [], requests: [], outgoing: [], loading: false });
   },

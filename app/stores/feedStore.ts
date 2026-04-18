@@ -51,6 +51,7 @@ interface FeedState {
   /** Soft-delete on server, then drop from local feed */
   deletePost: (postId: string) => Promise<void>;
   prependPost: (post: FeedPost) => void;
+  reset: () => void;
 }
 
 export const useFeedStore = create<FeedState>((set, get) => ({
@@ -169,4 +170,6 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     set((s) => ({
       posts: [normalizeFeedPost(post as unknown as Record<string, unknown>), ...s.posts],
     })),
+
+  reset: () => set({ posts: [], cursor: null, hasMore: true, isLoading: false, isRefreshing: false }),
 }));

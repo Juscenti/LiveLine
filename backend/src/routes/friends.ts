@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { createSupabaseUserClient } from '../config/supabase';
+import { supabaseAdmin } from '../config/supabase';
 import { requireAuth } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 
@@ -23,7 +23,7 @@ function normalizeStatus(raw: string | null | undefined) {
 }
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
-  const db = createSupabaseUserClient(req.accessToken!);
+  const db = supabaseAdmin;
 
   // Avoid PostgREST relationship inference on views (like `v_friends`).
   // Instead, query `friendships` directly and compute `friend_id` in JS.
@@ -80,7 +80,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
 // Pending outgoing (I am requester) — avoid PostgREST embeds (FK hint names differ across DBs / RLS edge cases).
 router.get('/outgoing', requireAuth, async (req: AuthRequest, res: Response) => {
-  const db = createSupabaseUserClient(req.accessToken!);
+  const db = supabaseAdmin;
   const { data: rows, error } = await db
     .from('friendships')
     .select('id, requester_id, addressee_id, status, created_at, updated_at')
@@ -107,7 +107,7 @@ router.get('/outgoing', requireAuth, async (req: AuthRequest, res: Response) => 
 
 // Incoming friend requests (must be registered BEFORE /status/:userId or "requests" is captured as a userId).
 router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => {
-  const db = createSupabaseUserClient(req.accessToken!);
+  const db = supabaseAdmin;
   const { data: rows, error } = await db
     .from('friendships')
     .select('id, requester_id, addressee_id, status, created_at, updated_at')
@@ -139,7 +139,7 @@ router.get('/status/:userId', requireAuth, async (req: AuthRequest, res: Respons
   if (!parsed.success) return badUuid(res);
   const targetId = parsed.data;
 
-  const db = createSupabaseUserClient(req.accessToken!);
+  const db = supabaseAdmin;
   const { data, error } = await db
     .from('friendships')
     .select('*')
@@ -170,7 +170,7 @@ router.get('/status/:userId', requireAuth, async (req: AuthRequest, res: Respons
 router.post('/request/:userId', requireAuth, async (req: AuthRequest, res: Response) => {
   const parsed = uuidSchema.safeParse(req.params.userId);
   if (!parsed.success) return badUuid(res);
-  const db = createSupabaseUserClient(req.accessToken!);
+  const db = supabaseAdmin;
   const { data, error } = await db
     .from('friendships')
     .insert({ requester_id: req.userId, addressee_id: parsed.data })
@@ -190,7 +190,7 @@ router.post('/request/:userId', requireAuth, async (req: AuthRequest, res: Respo
 router.patch('/:id/accept', requireAuth, async (req: AuthRequest, res: Response) => {
   const idParsed = uuidSchema.safeParse(req.params.id);
   if (!idParsed.success) return badUuid(res);
-  const db = createSupabaseUserClient(req.accessToken!);
+  const db = supabaseAdmin;
   const { error } = await db
     .from('friendships')
     .update({ status: 'accepted' })
@@ -204,7 +204,7 @@ router.patch('/:id/accept', requireAuth, async (req: AuthRequest, res: Response)
 router.patch('/:id/decline', requireAuth, async (req: AuthRequest, res: Response) => {
   const idParsed = uuidSchema.safeParse(req.params.id);
   if (!idParsed.success) return badUuid(res);
-  const db = createSupabaseUserClient(req.accessToken!);
+  const db = supabaseAdmin;
   const { error } = await db
     .from('friendships')
     .update({ status: 'declined' })
@@ -219,7 +219,7 @@ router.delete('/:userId', requireAuth, async (req: AuthRequest, res: Response) =
   const parsed = uuidSchema.safeParse(req.params.userId);
   if (!parsed.success) return badUuid(res);
   const targetId = parsed.data;
-  const db = createSupabaseUserClient(req.accessToken!);
+  const db = supabaseAdmin;
   const { error } = await db
     .from('friendships')
     .delete()
@@ -236,7 +236,7 @@ router.post('/block/:userId', requireAuth, async (req: AuthRequest, res: Respons
   const parsed = uuidSchema.safeParse(req.params.userId);
   if (!parsed.success) return badUuid(res);
   const targetId = parsed.data;
-  const db = createSupabaseUserClient(req.accessToken!);
+  const db = supabaseAdmin;
   const { error } = await db
     .from('friendships')
     .update({ status: 'blocked' })

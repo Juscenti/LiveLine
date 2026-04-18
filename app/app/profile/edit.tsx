@@ -80,14 +80,9 @@ export default function EditProfileScreen() {
     if (!user) return;
     setLoading(true);
     try {
-      const payload: { display_name?: string; bio?: string; username?: string } = {};
       const dn = displayName.trim();
       const un = username.trim();
       const bb = bio.trim();
-
-      if (dn) payload.display_name = dn;
-      if (un) payload.username = un;
-      if (bb) payload.bio = bb;
 
       const requestError = (e: any) => {
         const status = e?.response?.status;
@@ -95,12 +90,18 @@ export default function EditProfileScreen() {
         return `${status ? `HTTP ${status}` : ''}${status ? ' — ' : ''}${serverError ?? e?.message ?? 'Unknown error'}`;
       };
 
-      if (Object.keys(payload).length > 0) {
-        try {
-          await usersApi.updateProfile(payload);
-        } catch (e: any) {
-          throw new Error(`Update profile failed: ${requestError(e)}`);
-        }
+      // Always send all three fields so that clearing a value (e.g. bio) actually persists.
+      // Username must be non-empty (enforced server-side); display_name and bio can be blank.
+      const payload: { display_name: string; bio: string; username?: string } = {
+        display_name: dn,
+        bio: bb,
+      };
+      if (un) payload.username = un;
+
+      try {
+        await usersApi.updateProfile(payload);
+      } catch (e: any) {
+        throw new Error(`Update profile failed: ${requestError(e)}`);
       }
 
       if (avatarUri) {

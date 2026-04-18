@@ -28,19 +28,19 @@ import {
   type ChatMessage,
   type ConversationPeer,
 } from '@/services/conversations';
+import { useAuthStore } from '@/stores/authStore';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
 import { AppHeader, UserAvatar } from '@/components/shared';
 import { getDisplayName, formatUserHandle } from '@/utils/userDisplay';
 import { formatApiError } from '@/utils/apiErrors';
-import { supabase } from '@/services/supabase';
 
 dayjs.extend(relativeTime);
 
 export default function ConversationScreen() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
   const insets = useSafeAreaInsets();
+  const myId = useAuthStore((s) => s.user?.id ?? null);
   const [peer, setPeer] = useState<ConversationPeer | null>(null);
-  const [myId, setMyId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -53,24 +53,6 @@ export default function ConversationScreen() {
       );
     });
   }, []);
-
-  useEffect(() => {
-    if (!conversationId) return;
-    let cancelled = false;
-    (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) return;
-      const { data: me } = await supabase
-        .from('users')
-        .select('id')
-        .eq('auth_id', session.user.id)
-        .maybeSingle();
-      if (!cancelled) setMyId((me?.id as string) ?? null);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationId]);
 
   useEffect(() => {
     if (!conversationId) return;

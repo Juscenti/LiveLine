@@ -23,6 +23,8 @@ interface MapState {
   refreshNearby: (opts?: { force?: boolean }) => Promise<void>;
   selectFriend: (userId: string | null) => void;
   setVisibility: (visibility: string) => Promise<void>;
+  /** Full reset on logout — stops timers, clears all map state, resets module-level vars. */
+  resetMapSession: () => void;
 }
 
 let updateTimer: ReturnType<typeof setInterval> | null = null;
@@ -149,6 +151,24 @@ export const useMapStore = create<MapState>((set, get) => ({
   },
 
   selectFriend: (userId) => set({ selectedFriendId: userId }),
+
+  resetMapSession: () => {
+    const { watchSubscription } = get();
+    watchSubscription?.remove();
+    if (updateTimer) { clearInterval(updateTimer); updateTimer = null; }
+    if (nearbyPollTimer) { clearInterval(nearbyPollTimer); nearbyPollTimer = null; }
+    nearbyRefreshInFlight = false;
+    lastNearbySignature = '';
+    lastNearbyRequestAt = null;
+    set({
+      myLocation: null,
+      nearbyFriends: [],
+      selectedFriendId: null,
+      isTracking: false,
+      lastNearbyUpdatedAt: null,
+      watchSubscription: null,
+    });
+  },
 
   setVisibility: async (visibility) => {
     try {

@@ -15,6 +15,8 @@ import {
 import { useFriendsInboxStore } from '@/stores/friendsInboxStore';
 import { useMusicStore } from '@/stores/musicStore';
 import { useNotificationStore } from '@/stores/notificationStore';
+import { useFeedStore } from '@/stores/feedStore';
+import { useMapStore } from '@/stores/mapStore';
 import type { User } from '@/types';
 
 /** Only register Supabase listener once (initialize must not stack listeners on re-entry). */
@@ -120,6 +122,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           if (uid) void useNotificationStore.getState().clearCachedForUser(uid);
           useNotificationStore.getState().reset();
           useMusicStore.getState().resetMusicSession();
+          useFeedStore.getState().reset();
+          useMapStore.getState().resetMapSession();
           set({ user: null, session: null });
           return;
         }
@@ -261,6 +265,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     useMusicStore.getState().resetMusicSession();
     if (uid) void useNotificationStore.getState().clearCachedForUser(uid);
     useNotificationStore.getState().reset();
+    useFeedStore.getState().reset();
+    useMapStore.getState().resetMapSession();
     set({ user: null, session: null });
   },
 
