@@ -36,6 +36,7 @@ export default function FeedScreen() {
   const { posts, isLoading, isRefreshing, hasMore, loadFeed, loadMore, refresh } = useFeedStore();
   const showEmpty = !isLoading && posts.length === 0;
 
+  const [headerHeight, setHeaderHeight] = useState(0);
   const [didInitialLoad, setDidInitialLoad] = useState(false);
   const prefetchAttemptsRef = useRef(0);
   // How far ahead we want to buffer immediately after the first page loads.
@@ -333,7 +334,10 @@ export default function FeedScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 8, paddingHorizontal: headerPad }]}>
+      <View
+        style={[styles.header, { paddingTop: insets.top + 8, paddingHorizontal: headerPad }]}
+        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+      >
         <Text style={[styles.wordmark, { fontSize: FONTS.sizes.xl * feedScale }]}>liveline</Text>
         <TouchableOpacity
           style={[
@@ -380,7 +384,7 @@ export default function FeedScreen() {
               styles.listContent,
               { paddingBottom: bottomPad, width: innerWidth },
             ]}
-            ListHeaderComponent={<WeeklyRecap />}
+            ListHeaderComponent={null}
             onEndReached={loadMore}
             onEndReachedThreshold={0.8}
             refreshControl={
@@ -426,6 +430,8 @@ export default function FeedScreen() {
           ) : null}
         </View>
       </View>
+      {/* Weekly recap floats above the feed as an absolute overlay */}
+      <WeeklyRecap topOffset={headerHeight} />
     </View>
   );
 }
