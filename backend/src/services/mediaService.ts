@@ -1,12 +1,18 @@
 import { v4 as uuidv4 } from 'uuid';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
+import { execSync } from 'child_process';
 import sharp from 'sharp';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { supabaseAdmin } from '../config/supabase';
+
+function resolveSystemFfmpeg(): string {
+  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
+  try { return execSync('which ffmpeg', { encoding: 'utf8' }).trim(); } catch {}
+  return 'ffmpeg';
+}
 
 type MediaType = 'image' | 'video';
 
@@ -48,7 +54,7 @@ async function probeVideo(buffer: Buffer, mimetype: string): Promise<VideoProbeR
 
   try {
     // Ensure fluent-ffmpeg uses bundled binaries
-    ffmpeg.setFfmpegPath(ffmpegStatic as unknown as string);
+    ffmpeg.setFfmpegPath(resolveSystemFfmpeg());
     ffmpeg.setFfprobePath(ffprobeStatic.path);
 
     const metadata = await new Promise<any>((resolve, reject) => {
@@ -133,7 +139,7 @@ async function extractFirstFrameThumbnailJpeg(
   await fs.writeFile(tmpVideoPath, buffer);
 
   try {
-    ffmpeg.setFfmpegPath(ffmpegStatic as unknown as string);
+    ffmpeg.setFfmpegPath(resolveSystemFfmpeg());
     ffmpeg.setFfprobePath(ffprobeStatic.path);
 
     const scaleFilter =
