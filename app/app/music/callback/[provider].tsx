@@ -20,6 +20,7 @@ export default function MusicCallbackScreen() {
 
   useEffect(() => {
     if (!provider || !code) {
+      router.replace('/(tabs)/profile');
       return;
     }
 

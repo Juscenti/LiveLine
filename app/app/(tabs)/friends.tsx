@@ -25,6 +25,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { friendsApi, usersApi } from '@/services/api';
+import { useFeedStore } from '@/stores/feedStore';
 import {
   loadConversationList,
   getOrCreateDirectConversation,
@@ -149,6 +150,7 @@ export default function FriendsTabScreen() {
     try {
       await friendsApi.acceptRequest(friendshipId);
       await fetchFriendsInbox({ withSpinner: true });
+      void useFeedStore.getState().refresh();
     } catch (e: unknown) {
       Alert.alert('Could not accept', formatApiError(e));
     }

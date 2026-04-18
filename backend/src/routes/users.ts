@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { supabaseAdmin } from '../config/supabase';
+import { supabaseAdmin, createSupabaseUserClient } from '../config/supabase';
 import { requireAuth, upload } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
 
@@ -77,15 +77,22 @@ router.patch('/me', requireAuth, async (req: AuthRequest, res: Response) => {
 router.post('/me/avatar', requireAuth, upload.single('avatar'), async (req: AuthRequest, res: Response) => {
   if (!req.file) return res.status(400).json({ error: 'No file', data: null });
 
-  const key = `${req.userId}/avatar.jpg`;
-  const { error: uploadErr } = await supabaseAdmin.storage
+  // Use userAuthId (= auth.uid() in JWT) so the folder matches the standard storage RLS policy.
+  const key = `${req.userAuthId}/avatar.jpg`;
+  const userClient = createSupabaseUserClient(req.accessToken!);
+  const { error: uploadErr } = await userClient.storage
     .from('avatars')
     .upload(key, req.file.buffer, { contentType: req.file.mimetype, upsert: true });
 
   if (uploadErr) return res.status(500).json({ error: uploadErr.message, data: null });
 
   const { data: { publicUrl } } = supabaseAdmin.storage.from('avatars').getPublicUrl(key);
-  await supabaseAdmin.from('users').update({ profile_picture_url: publicUrl }).eq('id', req.userId);
+  const { error: dbErr } = await supabaseAdmin
+    .from('users')
+    .update({ profile_picture_url: publicUrl })
+    .eq('id', req.userId);
+
+  if (dbErr) return res.status(500).json({ error: dbErr.message, data: null });
 
   return res.json({ data: { url: publicUrl }, error: null });
 });
@@ -94,15 +101,21 @@ router.post('/me/avatar', requireAuth, upload.single('avatar'), async (req: Auth
 router.post('/me/banner', requireAuth, upload.single('banner'), async (req: AuthRequest, res: Response) => {
   if (!req.file) return res.status(400).json({ error: 'No file', data: null });
 
-  const key = `${req.userId}/banner.jpg`;
-  const { error: uploadErr } = await supabaseAdmin.storage
+  const key = `${req.userAuthId}/banner.jpg`;
+  const userClient = createSupabaseUserClient(req.accessToken!);
+  const { error: uploadErr } = await userClient.storage
     .from('banners')
     .upload(key, req.file.buffer, { contentType: req.file.mimetype, upsert: true });
 
   if (uploadErr) return res.status(500).json({ error: uploadErr.message, data: null });
 
   const { data: { publicUrl } } = supabaseAdmin.storage.from('banners').getPublicUrl(key);
-  await supabaseAdmin.from('users').update({ banner_url: publicUrl }).eq('id', req.userId);
+  const { error: dbErr } = await supabaseAdmin
+    .from('users')
+    .update({ banner_url: publicUrl })
+    .eq('id', req.userId);
+
+  if (dbErr) return res.status(500).json({ error: dbErr.message, data: null });
 
   return res.json({ data: { url: publicUrl }, error: null });
 });

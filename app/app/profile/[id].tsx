@@ -20,6 +20,7 @@ import { usersApi, postsApi, friendsApi, musicApi } from '@/services/api';
 import { getOrCreateDirectConversation } from '@/services/conversations';
 import { useAuthStore } from '@/stores/authStore';
 import { useMusicStore } from '@/stores/musicStore';
+import { useFeedStore } from '@/stores/feedStore';
 import { COLORS, SPACING, FONTS, FEED } from '@/constants';
 import PostThumb from '@/components/feed/PostThumb';
 import ProfileMusicSection from '@/components/music/ProfileMusicSection';
@@ -69,7 +70,10 @@ export default function PublicProfileScreen() {
   const isMe = me?.id === id;
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     Promise.all([usersApi.getProfile(id), postsApi.getUserPosts(id)])
       .then(([profileRes, postsRes]) => {
         setProfile(profileRes.data?.data ?? null);
@@ -150,6 +154,7 @@ export default function PublicProfileScreen() {
     try {
       await friendsApi.acceptRequest(rel.friendshipId);
       await loadRelationship();
+      void useFeedStore.getState().refresh();
     } catch (e: unknown) {
       Alert.alert('Error', formatApiError(e));
     }
@@ -192,7 +197,18 @@ export default function PublicProfileScreen() {
     );
   }
 
-  if (!profile || !id) return null;
+  if (!id) return null;
+
+  if (!profile) {
+    return (
+      <View style={[styles.loading, { paddingTop: insets.top }]}>
+        <AppHeader title="Profile" onBack={() => router.back()} />
+        <Text style={{ color: COLORS.textSecondary, marginTop: SPACING.xl, fontSize: FONTS.sizes.base }}>
+          Profile not found.
+        </Text>
+      </View>
+    );
+  }
 
   const displayTrack = isMe ? myNowPlaying : theirMusic;
   const spotifyConnectedForCard = isMe

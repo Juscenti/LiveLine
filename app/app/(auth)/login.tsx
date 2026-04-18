@@ -1,7 +1,7 @@
 // ============================================================
 // app/(auth)/login.tsx
 // ============================================================
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, Alert,
@@ -15,14 +15,19 @@ export default function LoginScreen() {
   const { login, isLoading } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const submitLock = useRef(false);
 
   const handleLogin = async () => {
     if (!email || !password) return;
+    if (submitLock.current || isLoading) return;
+    submitLock.current = true;
     try {
       await login(email.trim().toLowerCase(), password);
       router.replace('/(tabs)/feed');
     } catch (e: unknown) {
       Alert.alert('Login failed', formatApiError(e));
+    } finally {
+      submitLock.current = false;
     }
   };
 

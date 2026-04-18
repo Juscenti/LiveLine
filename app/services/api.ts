@@ -30,7 +30,7 @@ const getBackendHealthUrl = () => {
 // Wake the backend (cold start / slow first byte) before authenticated calls.
 export const wakeBackend = async () => {
   try {
-    await axios.get(getBackendHealthUrl(), { timeout: 45_000 });
+    await axios.get(getBackendHealthUrl(), { timeout: 12_000 });
   } catch {
     // Ignore; we'll still try the normal API flow afterwards.
   }
