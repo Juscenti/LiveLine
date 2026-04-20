@@ -86,9 +86,11 @@ export const useMapStore = create<MapState>((set, get) => ({
     if (updateTimer) clearInterval(updateTimer);
     updateTimer = setInterval(push, MAP.UPDATE_INTERVAL_MS);
     if (nearbyPollTimer) clearInterval(nearbyPollTimer);
-    nearbyPollTimer = setInterval(() => {
-      void get().refreshNearby();
-    }, MAP.NEARBY_POLL_INTERVAL_MS);
+    // Offset nearby poll by half the location interval so they never fire at the same time.
+    const nearbyOffset = MAP.UPDATE_INTERVAL_MS / 2;
+    setTimeout(() => {
+      nearbyPollTimer = setInterval(() => void get().refreshNearby(), MAP.NEARBY_POLL_INTERVAL_MS);
+    }, nearbyOffset);
 
     try {
       const sub = await Location.watchPositionAsync(

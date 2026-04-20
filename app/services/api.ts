@@ -7,7 +7,7 @@ import { rewriteLocalhostForAndroidEmulator } from '@/utils/devNetwork';
 import { supabase } from './supabase';
 import { getAccessToken, setAccessToken } from './accessTokenStore';
 
-type RetryableRequest = InternalAxiosRequestConfig & { _retryAfterAuth?: boolean };
+type RetryableRequest = InternalAxiosRequestConfig & { _retryAfterAuth?: boolean; _retried429?: boolean };
 
 const BASE_URL = rewriteLocalhostForAndroidEmulator(process.env.EXPO_PUBLIC_API_URL ?? '');
 if (!BASE_URL) {
@@ -106,6 +106,13 @@ api.interceptors.response.use(
     const isAuthFree =
       url.includes('/auth/register') ||
       url.includes('/auth/login');
+
+    // Railway / infra rate limit — back off and retry once rather than failing immediately.
+    if (status === 429 && original && !original._retried429) {
+      original._retried429 = true;
+      await new Promise((r) => setTimeout(r, 4000));
+      return api(original);
+    }
 
     if (status !== 401 || !original || isAuthFree) {
       return Promise.reject(err);

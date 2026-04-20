@@ -176,10 +176,10 @@ export const FEED = {
 
 export const MAP = {
   DEFAULT_RADIUS_METERS: 50000, // 50km "large scale"
-  UPDATE_INTERVAL_MS: 15000,   // 15 sec throttle
-  NEARBY_POLL_INTERVAL_MS: 15000,
-  // Hard throttle so we don't hit 429s from the backend (or Mapbox indirectly).
-  NEARBY_REFRESH_COOLDOWN_MS: 15000,
+  UPDATE_INTERVAL_MS: 45000,
+  NEARBY_POLL_INTERVAL_MS: 60000,
+  // Hard throttle — nearby poll and location push are offset so they never fire simultaneously.
+  NEARBY_REFRESH_COOLDOWN_MS: 25000,
   // If the user hasn't moved much, don't refetch nearby.
   NEARBY_REFRESH_DISTANCE_METERS: 100,
   DEFAULT_ZOOM: 14,

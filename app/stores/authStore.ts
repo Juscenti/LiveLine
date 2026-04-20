@@ -21,6 +21,8 @@ import type { User } from '@/types';
 
 /** Only register Supabase listener once (initialize must not stack listeners on re-entry). */
 let supabaseAuthListenerRegistered = false;
+/** Prevent concurrent /me calls (e.g. fetchMeWithRetry + TOKEN_REFRESHED firing simultaneously). */
+let meCallInFlight = false;
 
 /**
  * When login() or register() explicitly calls supabase.auth.setSession(), it fires a
@@ -35,23 +37,29 @@ let skipNextSignedInFromExplicitSet = false;
  * Cold start / flaky Wi‑Fi — bounded retries.
  * `staleSession`: JWT rejected by the API (e.g. Supabase project reset, user deleted) — clear local session.
  */
-async function fetchMeWithRetry(maxAttempts = 5): Promise<{ user: User | null; staleSession: boolean }> {
+async function fetchMeWithRetry(maxAttempts = 2): Promise<{ user: User | null; staleSession: boolean }> {
+  if (meCallInFlight) return { user: null, staleSession: false };
+  meCallInFlight = true;
   let last: User | null = null;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      const res = await authApi.me();
-      const body = res?.data as { data?: User } | undefined;
-      last = body?.data ?? null;
-      if (last) return { user: last, staleSession: false };
-    } catch (e) {
-      last = null;
-      if (axios.isAxiosError(e) && e.response?.status === 401) {
-        return { user: null, staleSession: true };
+  try {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const res = await authApi.me();
+        const body = res?.data as { data?: User } | undefined;
+        last = body?.data ?? null;
+        if (last) return { user: last, staleSession: false };
+      } catch (e) {
+        last = null;
+        if (axios.isAxiosError(e) && e.response?.status === 401) {
+          return { user: null, staleSession: true };
+        }
+      }
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 800));
       }
     }
-    if (attempt < maxAttempts - 1) {
-      await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
-    }
+  } finally {
+    meCallInFlight = false;
   }
   return { user: last, staleSession: false };
 }
@@ -130,23 +138,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         if (session?.access_token) setAccessToken(session.access_token);
 
-        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
-          // Skip the /auth/me call when we explicitly called setSession() inside
-          // login() or register() — we already have the user from those responses,
-          // and a cold-backend 401 here would incorrectly log the user back out.
-          if (event === 'SIGNED_IN' && skipNextSignedInFromExplicitSet) {
+        if (event === 'SIGNED_IN' && session) {
+          // Skip when login()/register() already set the user — avoids a cold-backend 401
+          // incorrectly logging the user out right after they sign in.
+          if (skipNextSignedInFromExplicitSet) {
             skipNextSignedInFromExplicitSet = false;
             return;
           }
+          // TOKEN_REFRESHED is intentionally excluded: the token is already applied via
+          // setAccessToken above and user data doesn't change on a refresh.
+          if (meCallInFlight) return;
+          meCallInFlight = true;
           try {
             const res = await authApi.me();
             const prev = get().user;
             const u = (res?.data as { data?: User } | undefined)?.data;
             set({ user: u ?? prev });
           } catch {
-            // Don't logout here — backend 401 on TOKEN_REFRESHED can be a
-            // transient cold-start failure, not a genuinely expired session.
-            // Supabase fires SIGNED_OUT when the refresh token is actually dead.
+            // Transient failure — don't logout, Supabase fires SIGNED_OUT when truly expired.
+          } finally {
+            meCallInFlight = false;
           }
         }
       });
