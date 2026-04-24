@@ -1,8 +1,8 @@
 // ============================================================
 // app/(tabs)/map.tsx — Live map
 // ============================================================
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Platform, Pressable, AppState } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, StyleSheet, Text, TouchableOpacity, Platform, Pressable, AppState, Animated } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +12,60 @@ import { COLORS, SPACING, FONTS, RADIUS, TAB_BAR } from '@/constants';
 import FriendMapMarker from '@/components/map/FriendMapMarker';
 import FriendMapSheet from '@/components/map/FriendMapSheet';
 import type { MapFriend } from '@/types';
+
+const RING_SIZE = 24;
+
+function SelfMapMarker() {
+  const scale = useRef(new Animated.Value(1)).current;
+  const ringOpacity = useRef(new Animated.Value(0.7)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.parallel([
+        Animated.timing(scale, { toValue: 2.6, duration: 1600, useNativeDriver: true }),
+        Animated.timing(ringOpacity, { toValue: 0, duration: 1600, useNativeDriver: true }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [scale, ringOpacity]);
+
+  return (
+    <View style={selfStyles.container}>
+      <Animated.View style={[selfStyles.ring, { transform: [{ scale }], opacity: ringOpacity }]} />
+      <View style={selfStyles.dot} />
+    </View>
+  );
+}
+
+function AnimatedFriendPin({
+  friend,
+  selected,
+  onPress,
+}: {
+  friend: MapFriend;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const [animationDone, setAnimationDone] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setAnimationDone(true), 900);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <Marker
+      coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={!animationDone || selected}
+      zIndex={selected ? 1000 : 1}
+      onPress={onPress}
+    >
+      <FriendMapMarker friend={friend} selected={selected} />
+    </Marker>
+  );
+}
 
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
@@ -100,30 +154,24 @@ export default function MapScreen() {
           }}
           customMapStyle={darkMapStyle}
         >
-          {/* Self marker */}
+          {/* Self marker — tracksViewChanges must stay true for the pulse animation to render */}
           {myLocation && (
             <Marker coordinate={myLocation} anchor={{ x: 0.5, y: 0.5 }}>
-              <View style={styles.selfMarker}>
-                <View style={styles.selfDot} />
-              </View>
+              <SelfMapMarker />
             </Marker>
           )}
 
           {/* Friend markers */}
           {nearbyFriends.map((friend) => (
-            <Marker
+            <AnimatedFriendPin
               key={friend.user_id}
-              coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={false}
-              zIndex={friend.user_id === selectedFriendId ? 1000 : 1}
+              friend={friend}
+              selected={friend.user_id === selectedFriendId}
               onPress={() => {
                 selectFriend(friend.user_id);
                 openFriendOnMap(friend);
               }}
-            >
-              <FriendMapMarker friend={friend} selected={friend.user_id === selectedFriendId} />
-            </Marker>
+            />
           ))}
         </MapView>
       ) : (
@@ -246,12 +294,6 @@ const styles = StyleSheet.create({
     zIndex: 12,
   },
   nearbyCount: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semibold, color: COLORS.accent },
-  selfMarker: {
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: COLORS.accent + '30',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  selfDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.accent },
   permBanner: {
     position: 'absolute', bottom: 100, left: SPACING.base, right: SPACING.base,
     backgroundColor: COLORS.error + 'CC', padding: SPACING.md, borderRadius: RADIUS.md,
@@ -259,6 +301,25 @@ const styles = StyleSheet.create({
   permText: { color: '#fff', textAlign: 'center', fontSize: FONTS.sizes.sm },
   loadingMap: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
   loadingMapTitle: { color: COLORS.textSecondary, fontWeight: FONTS.weights.semibold },
+});
+
+const selfStyles = StyleSheet.create({
+  container: {
+    width: RING_SIZE,
+    height: RING_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ring: {
+    position: 'absolute',
+    width: RING_SIZE,
+    height: RING_SIZE,
+    borderRadius: RING_SIZE / 2,
+    backgroundColor: COLORS.accent + '40',
+    borderWidth: 1.5,
+    borderColor: COLORS.accent,
+  },
+  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.accent },
 });
 
 const darkMapStyle = [

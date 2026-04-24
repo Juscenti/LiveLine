@@ -2,7 +2,7 @@
 // components/feed/PostCard.tsx — Masonry tile (Pinterest-style)
 // ============================================================
 import { useState, useEffect, useCallback, useRef, type Ref } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Animated } from 'react-native';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useEventListener } from 'expo';
@@ -33,10 +33,13 @@ interface Props {
 
 const MAX_TILE_HEIGHT_FACTOR = 6;
 const MIN_TILE_HEIGHT_FACTOR = 0.52;
+const DOUBLE_TAP_DELAY = 280;
 
 export default function PostCard({ post, width, onPress, shouldPlay = false, mediaMeasureRef }: Props) {
   const user = useAuthStore((s) => s.user);
   const deletePost = useFeedStore((s) => s.deletePost);
+  const likePost = useFeedStore((s) => s.likePost);
+  const unlikePost = useFeedStore((s) => s.unlikePost);
   const isOwner =
     user?.id != null &&
     (isSameUserId(user.id, post.user_id) || isSameUserId(user.id, post.author?.id));
@@ -64,9 +67,6 @@ export default function PostCard({ post, width, onPress, shouldPlay = false, med
   }, [thumbnailUri, showImage, post.id]);
 
   // ── Video player (feed tile) ─────────────────────────────────────────────
-  // Always load the real file when we have a URL so the paused view shows the
-  // video's first frame (same pixels as playback) instead of swapping from a
-  // separate thumbnail image when autoplay kicks in.
   const isVideo = post.media_type === 'video';
   const videoSource = isVideo ? (post.media_url ?? null) : null;
 
@@ -99,10 +99,6 @@ export default function PostCard({ post, width, onPress, shouldPlay = false, med
     prevShouldPlayRef.current = shouldPlay;
   }, [shouldPlay, isVideo, videoSource, videoPlayer]);
 
-  // Measure aspect from video track metadata — used as LAST RESORT fallback.
-  // DB dims (below) take priority because they come from orientation-corrected values
-  // (camera.tsx swaps raw dims at record time; gallery picks are re-encoded by image picker).
-  // videoTrackChange reports raw iOS stream dims and can be wrong for camera recordings.
   const [trackAspect, setTrackAspect] = useState<number | null>(null);
   useEffect(() => { setTrackAspect(null); }, [post.id]);
 
@@ -113,10 +109,7 @@ export default function PostCard({ post, width, onPress, shouldPlay = false, med
     }
   });
 
-  // ── Aspect for videos ────────────────────────────────────────────────────
-  // Prefer DB dimensions first so camera-taken uploads use the same aspect as
-  // they were recorded (backend extracts real upright dims). Only fall back
-  // to decoded/track measurement when DB dims are missing.
+  // ── Aspect ───────────────────────────────────────────────────────────────
   const aspect = (() => {
     if (isVideo) {
       const w = Number(post.media_width);
@@ -124,7 +117,7 @@ export default function PostCard({ post, width, onPress, shouldPlay = false, med
       if (w > 0 && h > 0) return normalizeAspectFromPixels(w, h);
       if (decodedAspect != null) return decodedAspect;
       if (trackAspect != null) return trackAspect;
-      return 9 / 16; // last resort (legacy / no dims)
+      return 9 / 16;
     }
     return decodedAspect ?? getPostMediaAspectRatio(post);
   })();
@@ -134,6 +127,54 @@ export default function PostCard({ post, width, onPress, shouldPlay = false, med
     Math.max(naturalH, width * MIN_TILE_HEIGHT_FACTOR),
     width * MAX_TILE_HEIGHT_FACTOR,
   );
+
+  // ── Heart burst animation (RN Animated — no Reanimated) ──────────────────
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const heartOpacity = useRef(new Animated.Value(0)).current;
+
+  const burstHeart = useCallback(() => {
+    heartScale.setValue(0);
+    heartOpacity.setValue(1);
+    Animated.parallel([
+      Animated.spring(heartScale, { toValue: 1, friction: 5, tension: 120, useNativeDriver: true }),
+      Animated.timing(heartOpacity, { toValue: 0, duration: 700, useNativeDriver: true }),
+    ]).start();
+  }, [heartScale, heartOpacity]);
+
+  // ── Like toggle ──────────────────────────────────────────────────────────
+  const handleLike = useCallback(() => {
+    if (post.user_has_liked) {
+      void unlikePost(post.id);
+    } else {
+      void likePost(post.id);
+      burstHeart();
+    }
+  }, [post.user_has_liked, post.id, likePost, unlikePost, burstHeart]);
+
+  const handleDoubleTap = useCallback(() => {
+    if (!post.user_has_liked) {
+      void likePost(post.id);
+    }
+    burstHeart();
+  }, [post.user_has_liked, post.id, likePost, burstHeart]);
+
+  // ── Double-tap detection (timer-based, no GestureDetector) ───────────────
+  const tapCountRef = useRef(0);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMediaPress = useCallback(() => {
+    tapCountRef.current += 1;
+    if (tapCountRef.current === 1) {
+      tapTimerRef.current = setTimeout(() => {
+        tapCountRef.current = 0;
+        onPress();
+      }, DOUBLE_TAP_DELAY);
+    } else {
+      if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+      tapCountRef.current = 0;
+      handleDoubleTap();
+    }
+  }, [onPress, handleDoubleTap]);
 
   const handleMenu = useCallback(() => {
     if (!isOwner) {
@@ -160,7 +201,7 @@ export default function PostCard({ post, width, onPress, shouldPlay = false, med
 
   return (
     <View style={[styles.card, { width }]}>
-      <TouchableOpacity onPress={onPress} activeOpacity={0.92}>
+      <TouchableOpacity onPress={handleMediaPress} activeOpacity={0.92}>
         <View ref={mediaMeasureRef} style={[styles.media, { height: imageHeight, width, borderRadius: FEED.tileRadius }]}>
           {isVideo && post.media_url ? (
             <>
@@ -215,6 +256,18 @@ export default function PostCard({ post, width, onPress, shouldPlay = false, med
               <Text style={styles.expiryText}>{dayjs(post.expires_at).fromNow(true)}</Text>
             </View>
           )}
+
+          {/* Heart burst overlay */}
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              styles.heartOverlay,
+              { transform: [{ scale: heartScale }], opacity: heartOpacity },
+            ]}
+          >
+            <Ionicons name="heart" size={80} color="#fff" />
+          </Animated.View>
         </View>
       </TouchableOpacity>
 
@@ -224,6 +277,26 @@ export default function PostCard({ post, width, onPress, shouldPlay = false, med
             {post.author?.display_name ?? post.author?.username ?? '—'}
           </Text>
         </TouchableOpacity>
+
+        {/* Like button */}
+        <TouchableOpacity
+          onPress={handleLike}
+          hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+          style={styles.likeBtn}
+          accessibilityLabel={post.user_has_liked ? 'Unlike post' : 'Like post'}
+        >
+          <Ionicons
+            name={post.user_has_liked ? 'heart' : 'heart-outline'}
+            size={18}
+            color={post.user_has_liked ? '#ff3b55' : COLORS.textTertiary}
+          />
+          {post.like_count > 0 && (
+            <Text style={[styles.likeCount, post.user_has_liked && styles.likeCountActive]}>
+              {post.like_count}
+            </Text>
+          )}
+        </TouchableOpacity>
+
         <TouchableOpacity
           onPress={handleMenu}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -275,6 +348,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   expiryText: { color: COLORS.accent, fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.medium },
+  heartOverlay: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -288,5 +365,19 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.medium,
+  },
+  likeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 10,
+    gap: 3,
+  },
+  likeCount: {
+    color: COLORS.textTertiary,
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.medium,
+  },
+  likeCountActive: {
+    color: '#ff3b55',
   },
 });

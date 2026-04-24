@@ -8,7 +8,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
@@ -20,6 +20,38 @@ import PostCard from '@/components/feed/PostCard';
 import WeeklyRecap from '@/components/feed/WeeklyRecap';
 import type { FeedPost } from '@/types';
 import { useResponsive } from '@/utils/responsive';
+
+function SkeletonCard({ width, height }: { width: number; height: number }) {
+  const opacity = useRef(new Animated.Value(0.35)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0.7, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.35, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [opacity]);
+  return (
+    <Animated.View style={{ width, height, borderRadius: 14, backgroundColor: '#1e1e1e', opacity }} />
+  );
+}
+
+function SkeletonFeed({ columnWidth, gutter }: { columnWidth: number; gutter: number }) {
+  const heights = [180, 240, 150, 210, 170, 200];
+  return (
+    <View style={{ flexDirection: 'row', paddingTop: 12 }}>
+      {[0, 1].map((col) => (
+        <View key={col} style={{ flex: 1, marginHorizontal: gutter / 2, gap: gutter }}>
+          {heights.filter((_, i) => i % 2 === col).map((h, i) => (
+            <SkeletonCard key={i} width={columnWidth} height={h} />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
 
 /** Single source for overlay pixel size (see computeFeedPlayZoneLayout tuning in constants). */
 function useFeedPlayZone(columnWidth: number, windowWidth: number) {
@@ -396,9 +428,7 @@ export default function FeedScreen() {
             }
             ListEmptyComponent={
               isLoading ? (
-                <View style={styles.empty}>
-                  <ActivityIndicator color={COLORS.accent} size="large" />
-                </View>
+                <SkeletonFeed columnWidth={columnWidth} gutter={gutter} />
               ) : showEmpty ? (
                 <View style={styles.empty}>
                   <Text style={styles.emptyEmoji}>⚡</Text>

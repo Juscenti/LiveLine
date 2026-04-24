@@ -88,12 +88,21 @@ function TabIconSlot({
   const focusScale = useRef(new Animated.Value(focused ? 1.05 : 1)).current;
   const pressScale = useRef(new Animated.Value(1)).current;
   const scale = useRef(Animated.multiply(focusScale, pressScale)).current;
+  const hasMountedRef = useRef(false);
 
   useEffect(() => {
-    Animated.spring(focusScale, {
-      toValue: focused ? 1.05 : 1,
-      ...SPRING_ICON,
-    }).start();
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+    if (focused) {
+      Animated.sequence([
+        Animated.spring(focusScale, { toValue: 1.28, friction: 3, tension: 500, useNativeDriver: true }),
+        Animated.spring(focusScale, { toValue: 1.05, ...SPRING_ICON }),
+      ]).start();
+    } else {
+      Animated.spring(focusScale, { toValue: 1, ...SPRING_ICON }).start();
+    }
   }, [focused, focusScale]);
 
   const onPressIn = () => {
