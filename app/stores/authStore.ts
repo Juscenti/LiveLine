@@ -54,6 +54,11 @@ async function fetchMeWithRetry(maxAttempts = 2): Promise<{ user: User | null; s
         if (axios.isAxiosError(e) && e.response?.status === 401) {
           return { user: null, staleSession: true };
         }
+        // 429 already cooled off via the global rate-limit barrier — no value in
+        // looping again here (just adds load that triggers more 429s).
+        if (axios.isAxiosError(e) && e.response?.status === 429) {
+          return { user: null, staleSession: false };
+        }
       }
       if (attempt < maxAttempts - 1) {
         await new Promise((r) => setTimeout(r, 800));
@@ -173,7 +178,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         void (async () => {
           try {
             await wakeBackend().catch(() => {});
-            const { user, staleSession } = await fetchMeWithRetry(5);
+            const { user, staleSession } = await fetchMeWithRetry(2);
             if (staleSession) {
               await get().logout();
             } else {

@@ -41,6 +41,35 @@ function releaseRequestSlot() {
   if (next) next();
 }
 
+/**
+ * Global rate-limit barrier. When any request 429s we set this to a future
+ * timestamp (Retry-After or default) and every subsequent request waits before
+ * even trying. Without this, each screen retries independently and turns one
+ * 429 into dozens within seconds.
+ */
+const MAX_PAUSE_MS = 90_000;
+let rateLimitPauseUntil = 0;
+
+function parseRetryAfterMs(headers: unknown): number {
+  const h = (headers ?? {}) as Record<string, unknown>;
+  const raw = h['retry-after'] ?? h['Retry-After'];
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  const sec = Number(v);
+  if (Number.isFinite(sec) && sec > 0) return Math.min(sec * 1000, MAX_PAUSE_MS);
+  return 30_000;
+}
+
+async function awaitRateLimitBarrier(): Promise<void> {
+  const wait = rateLimitPauseUntil - Date.now();
+  if (wait > 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(wait, MAX_PAUSE_MS)));
+  }
+}
+
+export function getRateLimitPauseRemainingMs(): number {
+  return Math.max(0, rateLimitPauseUntil - Date.now());
+}
+
 const getBackendHealthUrl = () => {
   // BASE_URL is like ".../api". Backend health route is at "/health".
   const base = BASE_URL.replace(/\/api\/?$/, '');
@@ -87,6 +116,7 @@ async function applyFreshTokenToRequest(config: RetryableRequest): Promise<boole
 
 // Attach Supabase JWT to every request
 api.interceptors.request.use(async (config) => {
+  await awaitRateLimitBarrier();
   await acquireRequestSlot();
 
   // Avoid auth-session lookups for unauthenticated endpoints.
@@ -133,11 +163,21 @@ api.interceptors.response.use(
       url.includes('/auth/register') ||
       url.includes('/auth/login');
 
-    // Railway / infra rate limit — back off and retry once rather than failing immediately.
-    if (status === 429 && original && !original._retried429) {
-      original._retried429 = true;
-      await new Promise((r) => setTimeout(r, 4000));
-      return api(original);
+    // Railway / infra rate limit — set a global barrier so every other in-flight
+    // and future request waits, instead of each one independently retrying and
+    // multiplying the traffic that triggered the 429 in the first place.
+    if (status === 429) {
+      const pauseMs = parseRetryAfterMs(err.response?.headers);
+      const newPauseUntil = Date.now() + pauseMs;
+      if (newPauseUntil > rateLimitPauseUntil) rateLimitPauseUntil = newPauseUntil;
+
+      if (original && !original._retried429) {
+        original._retried429 = true;
+        // The barrier is set; the request interceptor will wait it out before
+        // re-firing this single retry. No extra timer here.
+        return api(original);
+      }
+      return Promise.reject(err);
     }
 
     if (status !== 401 || !original || isAuthFree) {
