@@ -6,7 +6,7 @@ import { router } from 'expo-router';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
 import { useMusicStore } from '@/stores/musicStore';
 import { useAuthStore } from '@/stores/authStore';
-import { musicApi } from '@/services/api';
+import { musicApi, wakeBackend } from '@/services/api';
 import * as Linking from 'expo-linking';
 
 function formatRelative(ts: number | null): string {
@@ -32,6 +32,7 @@ export default function MusicConnectScreen() {
     nowPlaying,
     isSyncing,
     lastSyncAt,
+    lastSyncError,
   } = useMusicStore();
   const userId = useAuthStore((s) => s.user?.id);
   const [loadingAuthUrl, setLoadingAuthUrl] = useState(false);
@@ -49,6 +50,8 @@ export default function MusicConnectScreen() {
 
   const handleRefresh = async () => {
     if (!isSpotifyConnected) return;
+    // Cold-start the Railway backend; harmless if already warm.
+    await wakeBackend();
     await syncNowPlaying();
     if (userId) await hydrateNowPlayingFromServer(userId);
   };
@@ -148,6 +151,10 @@ export default function MusicConnectScreen() {
                 Nothing synced yet. Play a song in Spotify, then tap Refresh.
               </Text>
             )}
+
+            {lastSyncError ? (
+              <Text style={styles.errorText}>{lastSyncError}</Text>
+            ) : null}
 
             <TouchableOpacity
               style={[styles.btn, { backgroundColor: COLORS.bgElevated, marginTop: SPACING.md }]}
@@ -262,6 +269,7 @@ const styles = StyleSheet.create({
   trackArtist: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm, marginTop: 2 },
   trackMeta: { color: COLORS.textTertiary, fontSize: 11, marginTop: 4 },
   nowPlayingEmpty: { color: COLORS.textTertiary, fontSize: FONTS.sizes.sm, lineHeight: 20 },
+  errorText: { color: COLORS.warning, fontSize: 12, lineHeight: 17, marginTop: SPACING.sm },
   sectionCard: {
     backgroundColor: COLORS.bgCard,
     borderRadius: RADIUS.lg,

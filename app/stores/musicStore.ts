@@ -17,6 +17,8 @@ interface MusicState {
   topTracks: MusicTrack[];
   isSyncing: boolean;
   lastSyncAt: number | null;
+  /** Plain-text reason the most recent sync failed (network, 5xx, etc.). null when last sync succeeded. */
+  lastSyncError: string | null;
   /**
    * From sync response meta: reconnect = permissions/scopes; dashboard = Spotify rejected Web API for this account.
    */
@@ -43,6 +45,7 @@ export const useMusicStore = create<MusicState>((set) => ({
   topTracks: [],
   isSyncing: false,
   lastSyncAt: null,
+  lastSyncError: null,
   spotifySyncIssue: null,
 
   syncNowPlaying: async () => {
@@ -65,12 +68,19 @@ export const useMusicStore = create<MusicState>((set) => ({
           nowPlaying: body?.data ?? null,
           spotifySyncIssue: issue,
           lastSyncAt: Date.now(),
+          lastSyncError: null,
         });
       } catch (e) {
         const noResponse = axios.isAxiosError(e) && e.response == null;
-        if (noResponse && __DEV__) {
-          // eslint-disable-next-line no-console
-          console.warn('[syncNowPlaying] network error (tunnel/offline); will retry on next poll');
+        if (noResponse) {
+          if (__DEV__) {
+            // eslint-disable-next-line no-console
+            console.warn('[syncNowPlaying] network error (tunnel/offline); will retry on next poll');
+          }
+          set({
+            lastSyncAt: Date.now(),
+            lastSyncError: 'Couldn’t reach Liveline backend. Check connection and retry.',
+          });
         } else if (axios.isAxiosError(e) && e.response?.status === 429) {
           const ra = e.response.headers?.['retry-after'];
           const sec = Number(Array.isArray(ra) ? ra[0] : ra);
@@ -81,10 +91,19 @@ export const useMusicStore = create<MusicState>((set) => ({
             // eslint-disable-next-line no-console
             console.warn('[syncNowPlaying] rate limited; backing off', Math.round(ms / 1000), 's');
           }
+          set({
+            lastSyncAt: Date.now(),
+            lastSyncError: `Rate limited; retrying in ${Math.round(ms / 1000)}s.`,
+          });
           return;
-        }
-        if (!noResponse) {
+        } else {
           console.error('[syncNowPlaying] failed:', e);
+          const status = axios.isAxiosError(e) ? e.response?.status : null;
+          const msg = (axios.isAxiosError(e) && (e.response?.data as any)?.error) || (e as Error)?.message;
+          set({
+            lastSyncAt: Date.now(),
+            lastSyncError: status ? `Sync failed (HTTP ${status}). ${msg ?? ''}`.trim() : (msg ?? 'Sync failed.'),
+          });
         }
       } finally {
         set({ isSyncing: false });
@@ -133,6 +152,7 @@ export const useMusicStore = create<MusicState>((set) => ({
       topTracks: [],
       isSyncing: false,
       lastSyncAt: null,
+      lastSyncError: null,
       spotifySyncIssue: null,
     });
   },
