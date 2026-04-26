@@ -16,12 +16,14 @@ interface MusicState {
   connectedPlatforms: MusicPlatform[];
   topTracks: MusicTrack[];
   isSyncing: boolean;
+  lastSyncAt: number | null;
   /**
    * From sync response meta: reconnect = permissions/scopes; dashboard = Spotify rejected Web API for this account.
    */
   spotifySyncIssue: SpotifySyncIssue;
 
   syncNowPlaying: () => Promise<void>;
+  hydrateNowPlayingFromServer: (userId: string) => Promise<void>;
   hydrateConnectedPlatforms: () => Promise<void>;
   resetMusicSession: () => void;
   startPolling: () => void;
@@ -40,6 +42,7 @@ export const useMusicStore = create<MusicState>((set) => ({
   connectedPlatforms: [],
   topTracks: [],
   isSyncing: false,
+  lastSyncAt: null,
   spotifySyncIssue: null,
 
   syncNowPlaying: async () => {
@@ -61,6 +64,7 @@ export const useMusicStore = create<MusicState>((set) => ({
         set({
           nowPlaying: body?.data ?? null,
           spotifySyncIssue: issue,
+          lastSyncAt: Date.now(),
         });
       } catch (e) {
         const noResponse = axios.isAxiosError(e) && e.response == null;
@@ -93,6 +97,17 @@ export const useMusicStore = create<MusicState>((set) => ({
     return syncInFlight;
   },
 
+  hydrateNowPlayingFromServer: async (userId: string) => {
+    try {
+      const res = await musicApi.getNowPlaying(userId);
+      const body = res.data as { data?: MusicTrack | null };
+      const track = body?.data ?? null;
+      set((s) => ({ nowPlaying: track ?? s.nowPlaying }));
+    } catch {
+      /* keep existing nowPlaying */
+    }
+  },
+
   hydrateConnectedPlatforms: async () => {
     try {
       const res = await musicApi.getConnectedPlatforms();
@@ -117,6 +132,7 @@ export const useMusicStore = create<MusicState>((set) => ({
       connectedPlatforms: [],
       topTracks: [],
       isSyncing: false,
+      lastSyncAt: null,
       spotifySyncIssue: null,
     });
   },

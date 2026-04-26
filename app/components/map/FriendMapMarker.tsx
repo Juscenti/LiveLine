@@ -1,34 +1,15 @@
 // ============================================================
 // components/map/FriendMapMarker.tsx
 // ============================================================
-import { useEffect, useRef } from 'react';
-import { View, Text, Image, StyleSheet, Animated } from 'react-native';
+import { View, Text, Image, StyleSheet } from 'react-native';
 import { COLORS, FONTS } from '@/constants';
 import type { MapFriend } from '@/types';
 
 interface Props { friend: MapFriend; selected: boolean; }
 
 export default function FriendMapMarker({ friend, selected }: Props) {
-  const translateY = useRef(new Animated.Value(-24)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: 100, useNativeDriver: true }),
-      Animated.spring(translateY, { toValue: 0, friction: 9, tension: 160, useNativeDriver: true }),
-    ]).start();
-  }, [translateY, opacity]);
-
   return (
-    <Animated.View
-      style={[
-        styles.wrapper,
-        {
-          transform: [{ translateY }, { scale: selected ? 1.1 : 1 }],
-          opacity,
-        },
-      ]}
-    >
+    <View style={[styles.wrapper, selected && styles.wrapperSelected]}>
       <View style={[styles.bubble, selected && styles.bubbleSelected]}>
         {friend.profile_picture_url ? (
           <Image source={{ uri: friend.profile_picture_url }} style={styles.avatar} />
@@ -39,12 +20,13 @@ export default function FriendMapMarker({ friend, selected }: Props) {
         )}
         {friend.music_song && <View style={styles.musicDot} />}
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: { alignItems: 'center', justifyContent: 'center' },
+  wrapperSelected: { transform: [{ scale: 1.1 }] },
   bubble: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: COLORS.bgCard,

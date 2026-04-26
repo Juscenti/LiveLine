@@ -21,6 +21,26 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// Railway's edge proxy 429s bursts of parallel requests from one IP. Cap
+// in-flight requests so screens still mount eagerly but the wire sees a
+// steady drip instead of a flood.
+const MAX_CONCURRENT_REQUESTS = 3;
+let activeRequestCount = 0;
+const requestWaitQueue: Array<() => void> = [];
+
+async function acquireRequestSlot(): Promise<void> {
+  while (activeRequestCount >= MAX_CONCURRENT_REQUESTS) {
+    await new Promise<void>((resolve) => requestWaitQueue.push(resolve));
+  }
+  activeRequestCount++;
+}
+
+function releaseRequestSlot() {
+  activeRequestCount = Math.max(0, activeRequestCount - 1);
+  const next = requestWaitQueue.shift();
+  if (next) next();
+}
+
 const getBackendHealthUrl = () => {
   // BASE_URL is like ".../api". Backend health route is at "/health".
   const base = BASE_URL.replace(/\/api\/?$/, '');
@@ -67,6 +87,8 @@ async function applyFreshTokenToRequest(config: RetryableRequest): Promise<boole
 
 // Attach Supabase JWT to every request
 api.interceptors.request.use(async (config) => {
+  await acquireRequestSlot();
+
   // Avoid auth-session lookups for unauthenticated endpoints.
   const url = config.url ?? '';
   const isAuthFree =
@@ -97,8 +119,12 @@ api.interceptors.request.use(async (config) => {
 // One retry after refresh: fixes races right after login / cold start where the first requests
 // ran before AsyncStorage session was readable, without signing the user out.
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    releaseRequestSlot();
+    return res;
+  },
   async (err: AxiosError) => {
+    releaseRequestSlot();
     const status = err.response?.status;
     const original = err.config as RetryableRequest | undefined;
     const url = original?.url ?? '';

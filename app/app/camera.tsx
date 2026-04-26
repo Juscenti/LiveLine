@@ -22,7 +22,7 @@ import {
   Animated,
   type NativeTouchEvent,
 } from 'react-native';
-import { useSharedValue, useAnimatedStyle, withSpring, Animated as RNAnimated } from 'react-native-reanimated';
+import RNAnimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
@@ -176,11 +176,45 @@ export default function CameraScreen() {
         setRecordProgress(Math.min((Date.now() - start) / 1000 / POST.MAX_DURATION_SEC, 1));
       }, 50);
     } else {
-      if (recordProgressInterval.current) clearInterval(recordProgressInterval.current);
+      if (recordProgressInterval.current) {
+        clearInterval(recordProgressInterval.current);
+        recordProgressInterval.current = null;
+      }
       setRecordProgress(0);
     }
-    return () => { if (recordProgressInterval.current) clearInterval(recordProgressInterval.current); };
+    return () => {
+      if (recordProgressInterval.current) {
+        clearInterval(recordProgressInterval.current);
+        recordProgressInterval.current = null;
+      }
+    };
   }, [isRecording]);
+
+  useEffect(() => {
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      if (recordProgressInterval.current) {
+        clearInterval(recordProgressInterval.current);
+        recordProgressInterval.current = null;
+      }
+      if (focusHideTimer.current) {
+        clearTimeout(focusHideTimer.current);
+        focusHideTimer.current = null;
+      }
+      if (zoomHideTimer.current) {
+        clearTimeout(zoomHideTimer.current);
+        zoomHideTimer.current = null;
+      }
+      if (sliderHideTimer.current) {
+        clearTimeout(sliderHideTimer.current);
+        sliderHideTimer.current = null;
+      }
+    };
+  }, []);
+
   const viewportModeRef = useRef<'regular' | 'vertical'>('regular');
   useEffect(() => { viewportModeRef.current = viewportMode; }, [viewportMode]);
   const sliderTrackWidth = useRef(0);
@@ -194,14 +228,26 @@ export default function CameraScreen() {
   const showZoomLabel = (z: number) => {
     setZoom(z);
     setZoomVisible(true);
-    if (zoomHideTimer.current) clearTimeout(zoomHideTimer.current);
-    zoomHideTimer.current = setTimeout(() => setZoomVisible(false), 1500);
+    if (zoomHideTimer.current) {
+      clearTimeout(zoomHideTimer.current);
+      zoomHideTimer.current = null;
+    }
+    zoomHideTimer.current = setTimeout(() => {
+      setZoomVisible(false);
+      zoomHideTimer.current = null;
+    }, 1500);
   };
 
   const showSlider = () => {
     setSliderVisible(true);
-    if (sliderHideTimer.current) clearTimeout(sliderHideTimer.current);
-    sliderHideTimer.current = setTimeout(() => setSliderVisible(false), 1500);
+    if (sliderHideTimer.current) {
+      clearTimeout(sliderHideTimer.current);
+      sliderHideTimer.current = null;
+    }
+    sliderHideTimer.current = setTimeout(() => {
+      setSliderVisible(false);
+      sliderHideTimer.current = null;
+    }, 1500);
   };
 
   // Main viewfinder PanResponder — handles pinch-zoom + horizontal swipe for mode
@@ -327,13 +373,20 @@ export default function CameraScreen() {
   }, [mode]);
 
   const cancelTimer = () => {
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
     setTimerActive(false);
     setTimerCountdown(0);
   };
 
   const executeWithTimer = (action: () => void) => {
     if (timerDelay === 0) { action(); return; }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
     let remaining = timerDelay;
     setTimerActive(true);
     setTimerCountdown(remaining);
@@ -341,7 +394,10 @@ export default function CameraScreen() {
       remaining -= 1;
       setTimerCountdown(remaining);
       if (remaining <= 0) {
-        clearInterval(timerIntervalRef.current!);
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current);
+          timerIntervalRef.current = null;
+        }
         setTimerActive(false);
         action();
       }

@@ -1,0 +1,363 @@
+DEFERRED CHANGES (require native rebuild)
+==========================================
+Root issue: JS packages expect react-native-worklets 0.7.4 but the native binary
+has 0.5.1. react-native-gesture-handler 2.x imports Reanimated internally, which
+triggers the crash. Fix requires rebuilding the dev client via EAS:
+  eas build --profile development --platform ios
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+0. GestureHandlerRootView in _layout.tsx
+   FILE: app/app/_layout.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Removed GestureHandlerRootView (crashes Expo Go due to worklets mismatch).
+Replaced with a plain <View style={{ flex: 1 }}>.
+
+To restore once native is rebuilt:
+  import { GestureHandlerRootView } from 'react-native-gesture-handler';
+  // replace <View style={{ flex: 1 }}> with <GestureHandlerRootView style={{ flex: 1 }}>
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. PostCard — Like button, heart burst, double-tap to like
+   FILE: app/components/feed/PostCard.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add these imports:
+  import { Animated } from 'react-native';  // already in RN, no Reanimated needed
+  // likePost / unlikePost from feedStore
+
+Add to PostCard function body (after existing store selectors):
+
+  const likePost = useFeedStore((s) => s.likePost);
+  const unlikePost = useFeedStore((s) => s.unlikePost);
+
+  // Heart burst (RN Animated — no Reanimated needed)
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const heartOpacity = useRef(new Animated.Value(0)).current;
+
+  const burstHeart = useCallback(() => {
+    heartScale.setValue(0);
+    heartOpacity.setValue(1);
+    Animated.parallel([
+      Animated.spring(heartScale, { toValue: 1, friction: 5, tension: 120, useNativeDriver: true }),
+      Animated.timing(heartOpacity, { toValue: 0, duration: 700, useNativeDriver: true }),
+    ]).start();
+  }, [heartScale, heartOpacity]);
+
+  const handleLike = useCallback(() => {
+    if (post.user_has_liked) {
+      void unlikePost(post.id);
+    } else {
+      void likePost(post.id);
+      burstHeart();
+    }
+  }, [post.user_has_liked, post.id, likePost, unlikePost, burstHeart]);
+
+  const handleDoubleTap = useCallback(() => {
+    if (!post.user_has_liked) void likePost(post.id);
+    burstHeart();
+  }, [post.user_has_liked, post.id, likePost, burstHeart]);
+
+  // Double-tap detection (timer-based, no GestureDetector)
+  const DOUBLE_TAP_DELAY = 280;
+  const tapCountRef = useRef(0);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMediaPress = useCallback(() => {
+    tapCountRef.current += 1;
+    if (tapCountRef.current === 1) {
+      tapTimerRef.current = setTimeout(() => {
+        tapCountRef.current = 0;
+        onPress();
+      }, DOUBLE_TAP_DELAY);
+    } else {
+      if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+      tapCountRef.current = 0;
+      handleDoubleTap();
+    }
+  }, [onPress, handleDoubleTap]);
+
+Replace the media TouchableOpacity's onPress={onPress} with onPress={handleMediaPress}.
+
+Inside the media View (after the expiry badge), add the heart overlay:
+  <Animated.View
+    pointerEvents="none"
+    style={[
+      StyleSheet.absoluteFill,
+      styles.heartOverlay,
+      { transform: [{ scale: heartScale }], opacity: heartOpacity },
+    ]}
+  >
+    <Ionicons name="heart" size={80} color="#fff" />
+  </Animated.View>
+
+In the footer, add a like button between usernameTouch and the menu button:
+  <TouchableOpacity
+    onPress={handleLike}
+    hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+    style={styles.likeBtn}
+    accessibilityLabel={post.user_has_liked ? 'Unlike post' : 'Like post'}
+  >
+    <Ionicons
+      name={post.user_has_liked ? 'heart' : 'heart-outline'}
+      size={18}
+      color={post.user_has_liked ? '#ff3b55' : COLORS.textTertiary}
+    />
+    {post.like_count > 0 && (
+      <Text style={[styles.likeCount, post.user_has_liked && styles.likeCountActive]}>
+        {post.like_count}
+      </Text>
+    )}
+  </TouchableOpacity>
+
+Add to StyleSheet:
+  heartOverlay: { justifyContent: 'center', alignItems: 'center' },
+  likeBtn: { flexDirection: 'row', alignItems: 'center', marginRight: 10, gap: 3 },
+  likeCount: { color: COLORS.textTertiary, fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.medium },
+  likeCountActive: { color: '#ff3b55' },
+
+Also update usernameTouch: change `marginRight: 8` to keep spacing consistent.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. feed.tsx — Skeleton loading
+   FILE: app/app/(tabs)/feed.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add to imports: Animated (from 'react-native'), remove ActivityIndicator.
+
+Add these two components before FeedScreen:
+
+  function SkeletonCard({ width, height }: { width: number; height: number }) {
+    const opacity = useRef(new Animated.Value(0.35)).current;
+    useEffect(() => {
+      const anim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(opacity, { toValue: 0.7, duration: 700, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0.35, duration: 700, useNativeDriver: true }),
+        ]),
+      );
+      anim.start();
+      return () => anim.stop();
+    }, [opacity]);
+    return (
+      <Animated.View style={{ width, height, borderRadius: 14, backgroundColor: '#1e1e1e', opacity }} />
+    );
+  }
+
+  function SkeletonFeed({ columnWidth, gutter }: { columnWidth: number; gutter: number }) {
+    const heights = [180, 240, 150, 210, 170, 200];
+    return (
+      <View style={{ flexDirection: 'row', paddingTop: 12 }}>
+        {[0, 1].map((col) => (
+          <View key={col} style={{ flex: 1, marginHorizontal: gutter / 2, gap: gutter }}>
+            {heights.filter((_, i) => i % 2 === col).map((h, i) => (
+              <SkeletonCard key={i} width={columnWidth} height={h} />
+            ))}
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+In ListEmptyComponent, replace:
+  isLoading ? (
+    <View style={styles.empty}>
+      <ActivityIndicator color={COLORS.accent} size="large" />
+    </View>
+  )
+with:
+  isLoading ? (
+    <SkeletonFeed columnWidth={columnWidth} gutter={gutter} />
+  )
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. map.tsx — Pulsing ring on own location marker
+   FILE: app/app/(tabs)/map.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add Animated to the react-native import. Add useState to react imports.
+
+Add this component before MapScreen:
+
+  const RING_SIZE = 24;
+
+  function SelfMapMarker() {
+    const scale = useRef(new Animated.Value(1)).current;
+    const ringOpacity = useRef(new Animated.Value(0.7)).current;
+
+    useEffect(() => {
+      const anim = Animated.loop(
+        Animated.parallel([
+          Animated.timing(scale, { toValue: 2.6, duration: 1600, useNativeDriver: true }),
+          Animated.timing(ringOpacity, { toValue: 0, duration: 1600, useNativeDriver: true }),
+        ]),
+      );
+      anim.start();
+      return () => anim.stop();
+    }, [scale, ringOpacity]);
+
+    return (
+      <View style={selfStyles.container}>
+        <Animated.View style={[selfStyles.ring, { transform: [{ scale }], opacity: ringOpacity }]} />
+        <View style={selfStyles.dot} />
+      </View>
+    );
+  }
+
+  const selfStyles = StyleSheet.create({
+    container: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
+    ring: {
+      position: 'absolute',
+      width: RING_SIZE, height: RING_SIZE, borderRadius: RING_SIZE / 2,
+      backgroundColor: COLORS.accent + '40',
+      borderWidth: 1.5, borderColor: COLORS.accent,
+    },
+    dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.accent },
+  });
+
+Replace the self marker JSX:
+  // Before:
+  <Marker coordinate={myLocation} anchor={{ x: 0.5, y: 0.5 }}>
+    <View style={styles.selfMarker}>
+      <View style={styles.selfDot} />
+    </View>
+  </Marker>
+
+  // After (no tracksViewChanges so it stays true by default, required for animation):
+  <Marker coordinate={myLocation} anchor={{ x: 0.5, y: 0.5 }}>
+    <SelfMapMarker />
+  </Marker>
+
+You can remove selfMarker and selfDot from the styles object.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. map.tsx — Animated drop + bounce when friend pins appear
+   FILE: app/app/(tabs)/map.tsx  +  components/map/FriendMapMarker.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+In map.tsx, add this wrapper component before MapScreen (requires useState):
+
+  function AnimatedFriendPin({
+    friend,
+    selected,
+    onPress,
+  }: {
+    friend: MapFriend;
+    selected: boolean;
+    onPress: () => void;
+  }) {
+    const [animationDone, setAnimationDone] = useState(false);
+
+    useEffect(() => {
+      const t = setTimeout(() => setAnimationDone(true), 900);
+      return () => clearTimeout(t);
+    }, []);
+
+    return (
+      <Marker
+        coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
+        anchor={{ x: 0.5, y: 0.5 }}
+        tracksViewChanges={!animationDone || selected}
+        zIndex={selected ? 1000 : 1}
+        onPress={onPress}
+      >
+        <FriendMapMarker friend={friend} selected={selected} />
+      </Marker>
+    );
+  }
+
+Replace the friend markers map:
+  // Before:
+  {nearbyFriends.map((friend) => (
+    <Marker
+      key={friend.user_id}
+      coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={false}
+      zIndex={friend.user_id === selectedFriendId ? 1000 : 1}
+      onPress={() => { selectFriend(friend.user_id); openFriendOnMap(friend); }}
+    >
+      <FriendMapMarker friend={friend} selected={friend.user_id === selectedFriendId} />
+    </Marker>
+  ))}
+
+  // After:
+  {nearbyFriends.map((friend) => (
+    <AnimatedFriendPin
+      key={friend.user_id}
+      friend={friend}
+      selected={friend.user_id === selectedFriendId}
+      onPress={() => { selectFriend(friend.user_id); openFriendOnMap(friend); }}
+    />
+  ))}
+
+In FriendMapMarker.tsx, replace the plain View wrapper with an animated drop:
+
+  import { useEffect, useRef } from 'react';
+  import { View, Text, Image, StyleSheet, Animated } from 'react-native';
+
+  export default function FriendMapMarker({ friend, selected }: Props) {
+    const translateY = useRef(new Animated.Value(-24)).current;
+    const opacity = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+      Animated.parallel([
+        Animated.timing(opacity, { toValue: 1, duration: 100, useNativeDriver: true }),
+        Animated.spring(translateY, { toValue: 0, friction: 9, tension: 160, useNativeDriver: true }),
+      ]).start();
+    }, [translateY, opacity]);
+
+    return (
+      <Animated.View
+        style={[
+          styles.wrapper,
+          { transform: [{ translateY }, { scale: selected ? 1.1 : 1 }], opacity },
+        ]}
+      >
+        ... (same bubble contents as before)
+      </Animated.View>
+    );
+  }
+
+  // Remove wrapperSelected from StyleSheet (scale is now inline above).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. Tab bar — Spring bounce on active tab icon
+   FILE: app/app/(tabs)/_layout.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NOTE: This one uses ONLY react-native's built-in Animated (no Reanimated).
+It does NOT require a native rebuild. Apply this whenever you're ready.
+
+In TabIconSlot, replace the focusScale useEffect:
+
+  // Before:
+  useEffect(() => {
+    Animated.spring(focusScale, {
+      toValue: focused ? 1.05 : 1,
+      ...SPRING_ICON,
+    }).start();
+  }, [focused, focusScale]);
+
+  // After:
+  const hasMountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return; // skip initial mount — don't bounce the default active tab on load
+    }
+    if (focused) {
+      Animated.sequence([
+        Animated.spring(focusScale, { toValue: 1.28, friction: 3, tension: 500, useNativeDriver: true }),
+        Animated.spring(focusScale, { toValue: 1.05, ...SPRING_ICON }),
+      ]).start();
+    } else {
+      Animated.spring(focusScale, { toValue: 1, ...SPRING_ICON }).start();
+    }
+  }, [focused, focusScale]);

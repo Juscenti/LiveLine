@@ -47,15 +47,14 @@ function spotifyErrorIndicatesInsufficientScope(data: unknown): boolean {
   return msg.includes('insufficient') && msg.includes('scope');
 }
 
-/** Development-mode app: user not on Spotify dashboard allowlist (403 on most Web API calls). */
+/**
+ * Development-mode app: user not on Spotify dashboard allowlist (403 on most Web API calls).
+ * Require the explicit dashboard URL; bare "user not registered" is too generic and Spotify
+ * sometimes returns it for users who *are* allowlisted.
+ */
 function spotifyErrorIndicatesDeveloperAllowlistRestriction(data: unknown): boolean {
   const msg = spotifyErrorRawText(data).toLowerCase();
-  return (
-    msg.includes('may not be registered') ||
-    msg.includes('user not registered') ||
-    msg.includes('not registered in the developer dashboard') ||
-    msg.includes('developer.spotify.com/dashboard')
-  );
+  return msg.includes('developer.spotify.com/dashboard');
 }
 
 function storedScopesCoverSync(stored: string | null | undefined): boolean {
@@ -268,6 +267,32 @@ async function fetchRecentFromSpotify(
   const item = rec.data.items[0]?.track;
   if (!item) return { track: null, status: rec.status, data: rec.data };
   return { track: mapSpotifyTrackItem(item), status: rec.status, data: rec.data };
+}
+
+/**
+ * /v1/me/player returns full player state. Spotify sometimes serves this even when
+ * /currently-playing 403s (different authorization checks). Used as a secondary fallback.
+ */
+async function fetchPlayerStateFromSpotify(
+  accessToken: string,
+): Promise<{ track: NormalizedSpotifyTrack | null; isPlaying: boolean; status: number; data: unknown }> {
+  const resp = await axios.get('https://api.spotify.com/v1/me/player', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    timeout: 20000,
+    validateStatus: () => true,
+  });
+
+  logSpotify403Body('player-state', resp.status, resp.data);
+
+  if (resp.status !== 200 || !resp.data?.item) {
+    return { track: null, isPlaying: false, status: resp.status, data: resp.data };
+  }
+  return {
+    track: mapSpotifyTrackItem(resp.data.item),
+    isPlaying: resp.data?.is_playing === true,
+    status: resp.status,
+    data: resp.data,
+  };
 }
 
 async function getCurrentPlayingFromSpotify(accessToken: string): Promise<AxiosResponse> {
@@ -527,6 +552,19 @@ export const musicService = {
 
     if (cur.status === 204 || (cur.status === 200 && !cur.data?.item)) {
       await clearUserNowPlayingFlags(userId);
+
+      const player = await fetchPlayerStateFromSpotify(accessToken);
+      if (player.track) {
+        if (player.isPlaying) {
+          const result = await insertPlayingRow(userId, player.track);
+          console.log('[sync] result: player-state now playing track saved (cur=204)');
+          return { activity: result, meta: null };
+        }
+        const result = await persistRecentTrack(userId, player.track);
+        console.log('[sync] result: player-state recent track saved (cur=204)');
+        return { activity: result, meta: null };
+      }
+
       const { track: m, status: recentSt, data: recentData } = await fetchRecentFromSpotify(accessToken);
       if (!m) {
         console.log('[sync] result: null (no recent tracks)');
@@ -541,6 +579,19 @@ export const musicService = {
     }
 
     if (cur.status === 401 || cur.status === 403 || cur.status === 404 || cur.status === 429) {
+      const player = await fetchPlayerStateFromSpotify(accessToken);
+      if (player.track) {
+        if (player.isPlaying) {
+          const result = await insertPlayingRow(userId, player.track);
+          console.log('[sync] result: player-state now playing track saved');
+          return { activity: result, meta: null };
+        }
+        await clearUserNowPlayingFlags(userId);
+        const result = await persistRecentTrack(userId, player.track);
+        console.log('[sync] result: player-state recent track saved');
+        return { activity: result, meta: null };
+      }
+
       const { track: m, status: recentSt, data: recentData } = await fetchRecentFromSpotify(accessToken);
       if (m) {
         await clearUserNowPlayingFlags(userId);

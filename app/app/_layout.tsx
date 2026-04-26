@@ -2,10 +2,9 @@
 // app/_layout.tsx — Root layout (Expo Router)
 // ============================================================
 import { useEffect } from 'react';
-import { LogBox } from 'react-native';
+import { View, LogBox } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/queryClient';
 import { useAuthStore } from '@/stores/authStore';
@@ -25,7 +24,7 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={{ flex: 1 }}>
         <StatusBar style="light" />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(auth)" />
@@ -39,7 +38,7 @@ export default function RootLayout() {
           <Stack.Screen name="interests" />
           <Stack.Screen name="music/connect" options={{ presentation: 'modal' }} />
         </Stack>
-      </GestureHandlerRootView>
+      </View>
     </QueryClientProvider>
   );
 }

@@ -23,6 +23,7 @@ import type { User } from '@/types';
 let supabaseAuthListenerRegistered = false;
 /** Prevent concurrent /me calls (e.g. fetchMeWithRetry + TOKEN_REFRESHED firing simultaneously). */
 let meCallInFlight = false;
+let refreshUserInFlight: Promise<void> | null = null;
 
 /**
  * When login() or register() explicitly calls supabase.auth.setSession(), it fires a
@@ -284,14 +285,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setUser: (user) => set({ user }),
 
   refreshUser: async () => {
-    try {
-      const res = await authApi.me();
-      const u = (res?.data as { data?: User } | undefined)?.data;
-      if (u) set({ user: u });
-    } catch {
-      // Don't logout on a backend error — the Supabase session may still be
-      // valid and the backend could be cold-starting. Supabase fires SIGNED_OUT
-      // when the refresh token is genuinely gone; trust that event instead.
-    }
+    if (!get().session?.access_token) return;
+    if (refreshUserInFlight) return refreshUserInFlight;
+
+    refreshUserInFlight = (async () => {
+      try {
+        const { user } = await fetchMeWithRetry(2);
+        if (user) set({ user });
+      } catch {
+        // Don't logout on a backend error — the Supabase session may still be
+        // valid and the backend could be cold-starting. Supabase fires SIGNED_OUT
+        // when the refresh token is genuinely gone; trust that event instead.
+      } finally {
+        refreshUserInFlight = null;
+      }
+    })();
+
+    return refreshUserInFlight;
   },
 }));

@@ -461,7 +461,6 @@ const gridStyles = StyleSheet.create({
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
-  const refreshUser = useAuthStore((s) => s.refreshUser);
   const friendsCount = useFriendsInboxStore((s) => s.friends.length);
   const { nowPlaying, connectedPlatforms } = useMusicStore();
   const spotifyConnected = useMemo(() => connectedPlatforms.includes('spotify'), [connectedPlatforms]);
@@ -494,17 +493,15 @@ export default function ProfileScreen() {
   // Warm up profile-related data as soon as the tabs layout mounts
   useEffect(() => {
     if (!user?.id) return;
-    void refreshUser();
     void useFriendsInboxStore.getState().fetch({ withSpinner: false, silent: true });
-  }, [user?.id, refreshUser]);
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
-      void refreshUser();
       fetchPosts();
       void useFriendsInboxStore.getState().fetch({ withSpinner: false, silent: true });
       // Music poll runs from tabs layout (MUSIC.SYNC_INTERVAL_MS); avoid extra /music/sync on every tab focus.
-    }, [refreshUser, fetchPosts]),
+    }, [fetchPosts]),
   );
 
   const bottomPad = TAB_BAR.height + TAB_BAR.bottomGap + insets.bottom + SPACING.lg;

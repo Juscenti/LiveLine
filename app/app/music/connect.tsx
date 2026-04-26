@@ -1,12 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, TextInput, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, TextInput, ActivityIndicator, Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { COLORS, SPACING, FONTS, RADIUS } from '@/constants';
 import { useMusicStore } from '@/stores/musicStore';
+import { useAuthStore } from '@/stores/authStore';
 import { musicApi } from '@/services/api';
 import * as Linking from 'expo-linking';
+
+function formatRelative(ts: number | null): string {
+  if (!ts) return 'never';
+  const sec = Math.max(1, Math.round((Date.now() - ts) / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  return `${hr}h ago`;
+}
 
 export default function MusicConnectScreen() {
   const {
@@ -16,8 +27,13 @@ export default function MusicConnectScreen() {
     startPolling,
     stopPolling,
     syncNowPlaying,
+    hydrateNowPlayingFromServer,
     spotifySyncIssue,
+    nowPlaying,
+    isSyncing,
+    lastSyncAt,
   } = useMusicStore();
+  const userId = useAuthStore((s) => s.user?.id);
   const [loadingAuthUrl, setLoadingAuthUrl] = useState(false);
   const [debugCode, setDebugCode] = useState('');
   const [lastSpotifyState, setLastSpotifyState] = useState('');
@@ -25,10 +41,23 @@ export default function MusicConnectScreen() {
   const isSpotifyConnected = useMemo(() => connectedPlatforms.includes('spotify'), [connectedPlatforms]);
   const isAppleConnected = useMemo(() => connectedPlatforms.includes('apple_music'), [connectedPlatforms]);
 
+  // Pull whatever's already in the DB so the user sees something even if a poll just rate-limited.
+  useEffect(() => {
+    if (!userId || !isSpotifyConnected) return;
+    void hydrateNowPlayingFromServer(userId);
+  }, [userId, isSpotifyConnected, hydrateNowPlayingFromServer]);
+
+  const handleRefresh = async () => {
+    if (!isSpotifyConnected) return;
+    await syncNowPlaying();
+    if (userId) await hydrateNowPlayingFromServer(userId);
+  };
+
   const openSpotifyAuthLink = async () => {
     setLoadingAuthUrl(true);
     try {
       const redirectUri = Linking.createURL('/music/callback/spotify');
+      console.log('[Spotify] redirect URI:', redirectUri);
       const resp = await musicApi.getSpotifyAuthUrl(redirectUri);
       const payload = resp.data.data ?? resp.data;
       if (!payload?.url) throw new Error('Missing auth url from backend.');
@@ -84,7 +113,7 @@ export default function MusicConnectScreen() {
 
       <Text style={styles.note}>Connect your music so Liveline can show what you’re listening to.</Text>
 
-      {spotifySyncIssue === 'reconnect' ? (
+      {isSpotifyConnected && spotifySyncIssue === 'reconnect' ? (
         <View style={styles.reconnectBanner}>
           <Text style={styles.reconnectBannerText}>
             Spotify needs fresh permissions. Disconnect below, then connect again (you’ll see Spotify’s consent
@@ -92,19 +121,46 @@ export default function MusicConnectScreen() {
           </Text>
         </View>
       ) : null}
-      {spotifySyncIssue === 'dashboard' ? (
-        <View style={styles.dashboardBanner}>
-          <Text style={styles.dashboardBannerText}>
-            Spotify isn’t returning playback data to Liveline for this account right now. Try disconnect and connect
-            again, or check back later. Other apps can use a different Spotify configuration, so behavior may not
-            match a friend’s site.
-          </Text>
-        </View>
-      ) : null}
 
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>Spotify</Text>
         <Text style={styles.sectionBody}>Opens Spotify auth in your browser and stores your connection.</Text>
+
+        {isSpotifyConnected ? (
+          <View style={styles.nowPlayingBox}>
+            {nowPlaying?.song ? (
+              <View style={styles.nowPlayingRow}>
+                {nowPlaying.cover_url ? (
+                  <Image source={{ uri: nowPlaying.cover_url }} style={styles.cover} />
+                ) : (
+                  <View style={[styles.cover, styles.coverPlaceholder]} />
+                )}
+                <View style={styles.trackText}>
+                  <Text style={styles.trackTitle} numberOfLines={1}>{nowPlaying.song}</Text>
+                  <Text style={styles.trackArtist} numberOfLines={1}>{nowPlaying.artist}</Text>
+                  <Text style={styles.trackMeta}>
+                    {nowPlaying.is_currently_playing ? 'Playing now' : 'Last played'} · synced {formatRelative(lastSyncAt)}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.nowPlayingEmpty}>
+                Nothing synced yet. Play a song in Spotify, then tap Refresh.
+              </Text>
+            )}
+
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: COLORS.bgElevated, marginTop: SPACING.md }]}
+              onPress={handleRefresh}
+              disabled={isSyncing}
+            >
+              {isSyncing
+                ? <ActivityIndicator color={COLORS.textPrimary} />
+                : <Text style={styles.btnText}>Refresh now</Text>}
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {isSpotifyConnected ? (
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: COLORS.bgElevated }]}
@@ -190,15 +246,22 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   reconnectBannerText: { color: COLORS.warning, fontSize: FONTS.sizes.sm, lineHeight: 20 },
-  dashboardBanner: {
-    backgroundColor: 'rgba(100, 149, 237, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(100, 149, 237, 0.35)',
+  nowPlayingBox: {
+    backgroundColor: COLORS.bgElevated,
     borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     padding: SPACING.md,
     marginBottom: SPACING.md,
   },
-  dashboardBannerText: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm, lineHeight: 20 },
+  nowPlayingRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  cover: { width: 56, height: 56, borderRadius: RADIUS.sm, backgroundColor: COLORS.bgCard },
+  coverPlaceholder: { borderWidth: 1, borderColor: COLORS.border },
+  trackText: { flex: 1, minWidth: 0 },
+  trackTitle: { color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold, fontSize: FONTS.sizes.md },
+  trackArtist: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm, marginTop: 2 },
+  trackMeta: { color: COLORS.textTertiary, fontSize: 11, marginTop: 4 },
+  nowPlayingEmpty: { color: COLORS.textTertiary, fontSize: FONTS.sizes.sm, lineHeight: 20 },
   sectionCard: {
     backgroundColor: COLORS.bgCard,
     borderRadius: RADIUS.lg,
