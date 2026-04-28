@@ -1,7 +1,10 @@
 {
   "name": "liveline",
   "private": true,
-  "workspaces": ["app", "backend"],
+  "workspaces": [
+    "app",
+    "backend"
+  ],
   "scripts": {
     "start": "yarn workspace app start",
     "ios": "yarn workspace app ios",
@@ -21,5 +24,8 @@
     "react-dom": "19.1.0",
     "react-native-reanimated": "4.1.0",
     "react-native-worklets": "0.5.1"
+  },
+  "dependencies": {
+    "expo-dev-client": "~6.0.21"
   }
 }

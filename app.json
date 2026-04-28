@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "11d44e9c-6228-4015-a425-384357d7e1d7"
+      }
+    },
+    "android": {
+      "package": "com.juscenti.liveline"
+    }
+  }
+}
