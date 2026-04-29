@@ -8,6 +8,7 @@ import { StatusBar } from 'expo-status-bar';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/queryClient';
 import { useAuthStore } from '@/stores/authStore';
+import { usePrefsStore } from '@/stores/prefsStore';
 
 if (__DEV__ && process.env.EXPO_PUBLIC_VERBOSE_NETWORK_LOGS !== 'true') {
   // Transient offline / emulator DNS noise while Supabase or API retries.
@@ -17,9 +18,11 @@ if (__DEV__ && process.env.EXPO_PUBLIC_VERBOSE_NETWORK_LOGS !== 'true') {
 
 export default function RootLayout() {
   const initialize = useAuthStore((s) => s.initialize);
+  const hydratePrefs = usePrefsStore((s) => s.hydrate);
 
   useEffect(() => {
     void initialize();
+    void hydratePrefs();
   }, []);
 
   return (

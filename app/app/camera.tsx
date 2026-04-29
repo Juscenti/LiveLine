@@ -24,7 +24,7 @@ import {
 } from 'react-native';
 import RNAnimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '@/services/haptics';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as MediaLibrary from 'expo-media-library';

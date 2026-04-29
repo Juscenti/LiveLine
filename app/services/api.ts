@@ -227,7 +227,12 @@ export const authApi = {
 
 export const usersApi = {
   getProfile: (userId: string) => api.get(`/users/${userId}`),
-  updateProfile: (data: Partial<{ display_name: string; bio: string; username: string }>) =>
+  updateProfile: (data: Partial<{
+    display_name: string;
+    bio: string;
+    username: string;
+    default_location_visibility: 'public' | 'friends' | 'private';
+  }>) =>
     api.patch('/users/me', data),
   uploadAvatar: (formData: FormData) =>
     api.post('/users/me/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),

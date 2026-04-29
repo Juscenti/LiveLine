@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFeedStore } from '@/stores/feedStore';
+import { usePrefsStore } from '@/stores/prefsStore';
 import { COLORS, SPACING, FONTS, FEED, FEED_PLAY_ZONE, computeFeedPlayZoneLayout } from '@/constants';
 import PostCard from '@/components/feed/PostCard';
 import WeeklyRecap from '@/components/feed/WeeklyRecap';
@@ -34,6 +35,7 @@ export default function FeedScreen() {
   const r = useResponsive();
   const [feedWidth, setFeedWidth] = useState(0);
   const { posts, isLoading, isRefreshing, hasMore, loadFeed, loadMore, refresh } = useFeedStore();
+  const videoAutoplay = usePrefsStore((s) => s.videoAutoplay);
   const showEmpty = !isLoading && posts.length === 0;
 
   const [headerHeight, setHeaderHeight] = useState(0);
@@ -311,7 +313,7 @@ export default function FeedScreen() {
           post={item}
           width={columnWidth}
           onPress={() => router.push(`/post/${item.id}`)}
-          shouldPlay={item.id === playingPostId}
+          shouldPlay={videoAutoplay !== 'never' && item.id === playingPostId}
           mediaMeasureRef={
             item.media_type === 'video'
               ? (node) => {

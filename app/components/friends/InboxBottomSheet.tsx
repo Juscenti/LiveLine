@@ -4,7 +4,6 @@
 // ============================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AccessibilityInfo,
   Animated,
   BackHandler,
   Dimensions,
@@ -21,6 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, RADIUS } from '@/constants';
+import { useReduceMotion } from '@/utils/useReduceMotion';
 
 type Props = {
   open: boolean;
@@ -44,23 +44,13 @@ export function InboxBottomSheet({
 }: Props) {
   const insets = useSafeAreaInsets();
   const [visible, setVisible] = useState(false);
-  const [reduceMotion, setReduceMotion] = useState(false);
+  const reduceMotion = useReduceMotion();
   const exitingRef = useRef(false);
 
   const panelH = Math.min(WINDOW_H * heightPercent, WINDOW_H - insets.top - 24);
 
   const translateY = useRef(new Animated.Value(panelH)).current;
   const backdropOp = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    let alive = true;
-    AccessibilityInfo.isReduceMotionEnabled?.().then((v) => {
-      if (alive) setReduceMotion(!!v);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const runEnter = useCallback(() => {
     translateY.setValue(panelH);

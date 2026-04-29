@@ -5,7 +5,7 @@ import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
   Image, ActivityIndicator, Animated, Pressable, useWindowDimensions, Dimensions,
-  Share,
+  Share, Modal,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -31,21 +31,28 @@ function formatJoinedDate(iso?: string | null): string {
   return `joined ${month} ${d.getFullYear()}`;
 }
 
+function formatFullDate(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}m`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}k`;
   return String(n);
 }
 
-// ── Top floating bar (settings + more) ───────────────────────
+// ── Top floating bar (settings + info) ───────────────────────
 function TopFloatBar({
   onPressSettings,
-  onPressMore,
+  onPressInfo,
   topInset,
   hasBanner,
 }: {
   onPressSettings: () => void;
-  onPressMore: () => void;
+  onPressInfo: () => void;
   topInset: number;
   hasBanner: boolean;
 }) {
@@ -65,17 +72,17 @@ function TopFloatBar({
         <Ionicons name="settings-outline" size={18} color={COLORS.textPrimary} />
       </Pressable>
       <Pressable
-        onPress={onPressMore}
+        onPress={onPressInfo}
         style={({ pressed }) => [
           topBarStyles.circle,
           hasBanner && topBarStyles.circleOnBanner,
           pressed && { opacity: 0.7 },
         ]}
         accessibilityRole="button"
-        accessibilityLabel="More"
+        accessibilityLabel="Profile info"
         hitSlop={8}
       >
-        <Ionicons name="ellipsis-horizontal" size={18} color={COLORS.textPrimary} />
+        <Ionicons name="information-circle-outline" size={20} color={COLORS.textPrimary} />
       </Pressable>
     </View>
   );
@@ -312,7 +319,6 @@ function ProfileHeader({
         </Text>
         <Text style={headerStyles.subline} numberOfLines={1}>
           @{user.username}
-          {user.created_at ? ` · ${formatJoinedDate(user.created_at)}` : ''}
         </Text>
         {user.bio ? <Text style={headerStyles.bio}>{user.bio}</Text> : null}
       </View>
@@ -327,18 +333,22 @@ function ProfileHeader({
 
       {/* Edit profile + Share profile */}
       <View style={headerStyles.actions}>
-        <Pressable
-          style={({ pressed }) => [headerStyles.editBtn, pressed && { opacity: 0.85 }]}
-          onPress={() => router.push('/profile/edit')}
-        >
-          <Text style={headerStyles.editBtnText}>edit profile</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [headerStyles.shareBtn, pressed && { opacity: 0.7 }]}
-          onPress={onShare}
-        >
-          <Text style={headerStyles.shareBtnText}>share profile</Text>
-        </Pressable>
+        <View style={headerStyles.actionSlot}>
+          <Pressable
+            style={({ pressed }) => [headerStyles.editBtn, pressed && { opacity: 0.85 }]}
+            onPress={() => router.push('/profile/edit')}
+          >
+            <Text style={headerStyles.editBtnText}>edit profile</Text>
+          </Pressable>
+        </View>
+        <View style={headerStyles.actionSlot}>
+          <Pressable
+            style={({ pressed }) => [headerStyles.shareBtn, pressed && { opacity: 0.7 }]}
+            onPress={onShare}
+          >
+            <Text style={headerStyles.shareBtnText}>share profile</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Stats row */}
@@ -441,8 +451,12 @@ const headerStyles = StyleSheet.create({
     marginTop: SPACING.md,
     marginHorizontal: SPACING.base,
   },
-  editBtn: {
+  actionSlot: {
     flex: 1,
+    alignItems: 'center',
+  },
+  editBtn: {
+    width: '95%',
     borderRadius: RADIUS.full,
     paddingVertical: 10,
     backgroundColor: COLORS.accent,
@@ -454,7 +468,7 @@ const headerStyles = StyleSheet.create({
     fontWeight: FONTS.weights.bold,
   },
   shareBtn: {
-    flex: 1,
+    width: '95%',
     borderRadius: RADIUS.full,
     paddingVertical: 10,
     backgroundColor: COLORS.bgElevated,
@@ -536,18 +550,23 @@ function ProfilePostCard({
   size,
   user,
   onPress,
+  showAuthor,
 }: {
   post: Post;
   size: number;
   user: any;
   onPress: () => void;
+  showAuthor: boolean;
 }) {
   const aspect = 3 / 4; // width / height — taller portrait tiles like the mockup
   const tileH = size / aspect;
   const thumb = post.thumbnail_url ?? post.media_url;
   const songTitle = post.music?.song;
+  // On tabs that may surface other users' posts (tagged/likes), prefer the post's
+  // author for the chip; on the profile owner's own posts it falls back to `user`.
+  const chipUser = post.author ?? user;
   const initial =
-    (user?.display_name ?? user?.username ?? '?')[0]?.toUpperCase() ?? '?';
+    (chipUser?.display_name ?? chipUser?.username ?? '?')[0]?.toUpperCase() ?? '?';
 
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [{ width: size, height: tileH }, pressed && { opacity: 0.92 }]}>
@@ -569,21 +588,23 @@ function ProfilePostCard({
           style={cardStyles.topShade}
         />
 
-        {/* User chip */}
-        <View style={cardStyles.userChip}>
-          <View style={cardStyles.miniRing}>
-            {user?.profile_picture_url ? (
-              <Image source={{ uri: user.profile_picture_url }} style={cardStyles.miniAvatar} />
-            ) : (
-              <View style={[cardStyles.miniAvatar, cardStyles.miniAvatarPlaceholder]}>
-                <Text style={cardStyles.miniInitial}>{initial}</Text>
-              </View>
-            )}
+        {/* User chip — hidden on the Posts tab since the viewer is already on this user's profile */}
+        {showAuthor ? (
+          <View style={cardStyles.userChip}>
+            <View style={cardStyles.miniRing}>
+              {chipUser?.profile_picture_url ? (
+                <Image source={{ uri: chipUser.profile_picture_url }} style={cardStyles.miniAvatar} />
+              ) : (
+                <View style={[cardStyles.miniAvatar, cardStyles.miniAvatarPlaceholder]}>
+                  <Text style={cardStyles.miniInitial}>{initial}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={cardStyles.userName} numberOfLines={1}>
+              {chipUser?.username ?? 'you'}
+            </Text>
           </View>
-          <Text style={cardStyles.userName} numberOfLines={1}>
-            {user?.username ?? 'you'}
-          </Text>
-        </View>
+        ) : null}
 
         {/* Music pill (if present) */}
         {songTitle ? (
@@ -742,10 +763,12 @@ function PostsGrid({
   posts,
   user,
   emptyTab,
+  showAuthor,
 }: {
   posts: Post[];
   user: any;
   emptyTab: TabKey;
+  showAuthor: boolean;
 }) {
   const { width: winW } = useWindowDimensions();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -791,6 +814,7 @@ function PostsGrid({
               size={thumbW}
               user={user}
               onPress={() => router.push(`/post/${post.id}`)}
+              showAuthor={showAuthor}
             />
           ))}
         </View>
@@ -823,10 +847,121 @@ const gridStyles = StyleSheet.create({
   },
 });
 
+// ── Profile info modal (bottom sheet) ────────────────────────
+function ProfileInfoModal({
+  visible,
+  onClose,
+  rows,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  rows: { label: string; value: string }[];
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <Pressable style={infoModalStyles.backdrop} onPress={onClose}>
+        <Pressable style={infoModalStyles.sheet} onPress={() => {}}>
+          <View style={infoModalStyles.handle} />
+          <View style={infoModalStyles.header}>
+            <Text style={infoModalStyles.title}>profile info</Text>
+            <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
+              <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+            </Pressable>
+          </View>
+          <View>
+            {rows.map((row, i) => (
+              <View
+                key={row.label}
+                style={[
+                  infoModalStyles.row,
+                  i < rows.length - 1 && infoModalStyles.rowDivider,
+                ]}
+              >
+                <Text style={infoModalStyles.rowLabel}>{row.label}</Text>
+                <Text style={infoModalStyles.rowValue} numberOfLines={1}>
+                  {row.value || '—'}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const infoModalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: COLORS.bgSheet,
+    borderTopLeftRadius: RADIUS.lg,
+    borderTopRightRadius: RADIUS.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 0,
+    borderColor: COLORS.border,
+    paddingHorizontal: SPACING.base,
+    paddingTop: 8,
+    paddingBottom: SPACING.xl,
+  },
+  handle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.border,
+    marginBottom: 4,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: SPACING.sm,
+  },
+  title: {
+    color: COLORS.textPrimary,
+    fontSize: FONTS.sizes.md,
+    fontWeight: FONTS.weights.bold,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    gap: SPACING.base,
+  },
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.borderSubtle,
+  },
+  rowLabel: {
+    color: COLORS.textSecondary,
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.medium,
+  },
+  rowValue: {
+    flexShrink: 1,
+    color: COLORS.textPrimary,
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.semibold,
+    textAlign: 'right',
+  },
+});
+
 // ── Root screen ──────────────────────────────────────────────
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
+  const session = useAuthStore((s) => s.session);
   const friendsCount = useFriendsInboxStore((s) => s.friends.length);
   const { nowPlaying, connectedPlatforms } = useMusicStore();
   const spotifyConnected = useMemo(
@@ -835,6 +970,7 @@ export default function ProfileScreen() {
   );
   const [posts, setPosts] = useState<Post[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>('posts');
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const totalLikes = useMemo(
     () => posts.reduce((sum, p) => sum + (typeof p.like_count === 'number' ? p.like_count : 0), 0),
@@ -881,9 +1017,17 @@ export default function ProfileScreen() {
     }
   }, [user?.username]);
 
-  const handleMore = useCallback(() => {
-    void handleShare();
-  }, [handleShare]);
+  const infoRows = useMemo(
+    () => [
+      { label: 'username', value: user?.username ? `@${user.username}` : '' },
+      { label: 'name', value: user?.display_name ?? '' },
+      { label: 'email', value: session?.user?.email ?? '' },
+      { label: 'date joined', value: formatFullDate(user?.created_at) },
+      { label: 'total posts', value: formatCount(posts.length) },
+      { label: 'total likes', value: formatCount(totalLikes) },
+    ],
+    [user?.username, user?.display_name, user?.created_at, session?.user?.email, posts.length, totalLikes],
+  );
 
   const visiblePosts = activeTab === 'posts' ? posts : [];
 
@@ -904,7 +1048,7 @@ export default function ProfileScreen() {
         topInset={insets.top}
         hasBanner={!!user.banner_url}
         onPressSettings={() => router.push('/settings')}
-        onPressMore={handleMore}
+        onPressInfo={() => setInfoOpen(true)}
       />
       <ScrollView
         style={rootStyles.scroll}
@@ -928,8 +1072,18 @@ export default function ProfileScreen() {
           onShare={handleShare}
         />
         <ProfileTabs active={activeTab} onChange={setActiveTab} />
-        <PostsGrid posts={visiblePosts} user={user} emptyTab={activeTab} />
+        <PostsGrid
+          posts={visiblePosts}
+          user={user}
+          emptyTab={activeTab}
+          showAuthor={activeTab !== 'posts'}
+        />
       </ScrollView>
+      <ProfileInfoModal
+        visible={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        rows={infoRows}
+      />
     </View>
   );
 }
